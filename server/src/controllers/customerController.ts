@@ -6,7 +6,7 @@
  */
 
 import { Request, Response } from 'express';
-import { db, COLLECTIONS } from '../config/firebase.js';
+import prisma from '../lib/prisma.js';
 import {
   Customer,
   CreateCustomerDTO,
@@ -15,8 +15,6 @@ import {
   ApiResponse,
 } from '../types/index.js';
 import { v4 as uuidv4 } from 'uuid';
-
-const customersCollection = db.collection(COLLECTIONS.CUSTOMERS);
 
 /**
  * Get all customers with optional filtering
@@ -28,30 +26,31 @@ export const getAllCustomers = async (
   try {
     const { category, active } = req.query;
     
-    let query: FirebaseFirestore.Query = customersCollection;
+    const where: any = {};
     
     // Filter by category if provided
     if (category && Object.values(CustomerCategory).includes(category as CustomerCategory)) {
-      query = query.where('category', '==', category);
+      where.category = category;
     }
     
     // Filter by active status if provided
     if (active !== undefined) {
-      query = query.where('isActive', '==', active === 'true');
+      where.isActive = active === 'true';
     }
     
-    const snapshot = await query.orderBy('name').get();
+    const customers = await prisma.customer.findMany({
+      where,
+      orderBy: {
+        name: 'asc',
+      },
+    });
     
-    const customers: Customer[] = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate(),
-      updatedAt: doc.data().updatedAt?.toDate(),
-    })) as Customer[];
+    // Prisma returns Date objects, so we cast to our Customer interface (which expects Date)
+    // The previous implementation mapped Timestamp to Date, but here it is already Date.
     
     const response: ApiResponse<Customer[]> = {
       success: true,
-      data: customers,
+      data: customers as unknown as Customer[], 
     };
     
     res.json(response);
@@ -75,9 +74,11 @@ export const getCustomerById = async (
   try {
     const { id } = req.params;
     
-    const doc = await customersCollection.doc(id).get();
+    const customer = await prisma.customer.findUnique({
+      where: { id },
+    });
     
-    if (!doc.exists) {
+    if (!customer) {
       const response: ApiResponse<null> = {
         success: false,
         error: 'Customer not found',
@@ -86,16 +87,9 @@ export const getCustomerById = async (
       return;
     }
     
-    const customer: Customer = {
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data()?.createdAt?.toDate(),
-      updatedAt: doc.data()?.updatedAt?.toDate(),
-    } as Customer;
-    
     const response: ApiResponse<Customer> = {
       success: true,
-      data: customer,
+      data: customer as unknown as Customer,
     };
     
     res.json(response);
@@ -119,26 +113,16 @@ export const createCustomer = async (
   try {
     const customerData: CreateCustomerDTO = req.body;
     
-    const id = uuidv4();
-    const now = new Date();
-    
-    const newCustomer: Customer = {
-      id,
-      ...customerData,
-      isActive: true,
-      createdAt: now,
-      updatedAt: now,
-    };
-    
-    await customersCollection.doc(id).set({
-      ...newCustomer,
-      createdAt: now,
-      updatedAt: now,
+    const newCustomer = await prisma.customer.create({
+      data: {
+        ...customerData,
+        isActive: true, // Default to true
+      },
     });
     
     const response: ApiResponse<Customer> = {
       success: true,
-      data: newCustomer,
+      data: newCustomer as unknown as Customer,
       message: 'Customer created successfully',
     };
     
@@ -164,36 +148,25 @@ export const updateCustomer = async (
     const { id } = req.params;
     const updateData: UpdateCustomerDTO = req.body;
     
-    const docRef = customersCollection.doc(id);
-    const doc = await docRef.get();
-    
-    if (!doc.exists) {
-      const response: ApiResponse<null> = {
+    // check if exists
+    const existing = await prisma.customer.findUnique({ where: { id } });
+    if (!existing) {
+       const response: ApiResponse<null> = {
         success: false,
         error: 'Customer not found',
       };
       res.status(404).json(response);
       return;
     }
-    
-    const updatedData = {
-      ...updateData,
-      updatedAt: new Date(),
-    };
-    
-    await docRef.update(updatedData);
-    
-    const updatedDoc = await docRef.get();
-    const customer: Customer = {
-      id: updatedDoc.id,
-      ...updatedDoc.data(),
-      createdAt: updatedDoc.data()?.createdAt?.toDate(),
-      updatedAt: updatedDoc.data()?.updatedAt?.toDate(),
-    } as Customer;
+
+    const updatedCustomer = await prisma.customer.update({
+      where: { id },
+      data: updateData,
+    });
     
     const response: ApiResponse<Customer> = {
       success: true,
-      data: customer,
+      data: updatedCustomer as unknown as Customer,
       message: 'Customer updated successfully',
     };
     
@@ -219,11 +192,9 @@ export const deleteCustomer = async (
     const { id } = req.params;
     const { permanent } = req.query;
     
-    const docRef = customersCollection.doc(id);
-    const doc = await docRef.get();
-    
-    if (!doc.exists) {
-      const response: ApiResponse<null> = {
+    const existing = await prisma.customer.findUnique({ where: { id } });
+    if (!existing) {
+       const response: ApiResponse<null> = {
         success: false,
         error: 'Customer not found',
       };
@@ -233,12 +204,16 @@ export const deleteCustomer = async (
     
     if (permanent === 'true') {
       // Permanent delete
-      await docRef.delete();
+      await prisma.customer.delete({
+        where: { id },
+      });
     } else {
       // Soft delete
-      await docRef.update({
-        isActive: false,
-        updatedAt: new Date(),
+      await prisma.customer.update({
+        where: { id },
+        data: {
+          isActive: false,
+        },
       });
     }
     
@@ -279,22 +254,19 @@ export const getCustomersByCategory = async (
       return;
     }
     
-    const snapshot = await customersCollection
-      .where('category', '==', category)
-      .where('isActive', '==', true)
-      .orderBy('name')
-      .get();
-    
-    const customers: Customer[] = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate(),
-      updatedAt: doc.data().updatedAt?.toDate(),
-    })) as Customer[];
+    const customers = await prisma.customer.findMany({
+      where: {
+        category,
+        isActive: true,
+      },
+      orderBy: {
+        name: 'asc',
+      },
+    });
     
     const response: ApiResponse<Customer[]> = {
       success: true,
-      data: customers,
+      data: customers as unknown as Customer[],
     };
     
     res.json(response);

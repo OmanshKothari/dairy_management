@@ -6,19 +6,14 @@
  */
 
 import { Request, Response } from 'express';
-import { db, COLLECTIONS } from '../config/firebase.js';
+import prisma from '../lib/prisma.js';
 import {
   Delivery,
   CreateDeliveryDTO,
   BulkDeliveryUpdateDTO,
   Shift,
   ApiResponse,
-  Customer,
 } from '../types/index.js';
-import { v4 as uuidv4 } from 'uuid';
-
-const deliveriesCollection = db.collection(COLLECTIONS.DELIVERIES);
-const customersCollection = db.collection(COLLECTIONS.CUSTOMERS);
 
 /**
  * Get deliveries for a specific date and shift
@@ -40,34 +35,37 @@ export const getDeliveriesByDateAndShift = async (
     }
     
     // Get all active customers
-    const customersSnapshot = await customersCollection
-      .where('isActive', '==', true)
-      .orderBy('name')
-      .get();
-    
-    const customers: Customer[] = customersSnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    })) as Customer[];
+    const customers = await prisma.customer.findMany({
+      where: { isActive: true },
+      orderBy: { name: 'asc' },
+    });
     
     // Get existing deliveries for the date and shift
-    const deliveriesSnapshot = await deliveriesCollection
-      .where('date', '==', date)
-      .where('shift', '==', shift)
-      .get();
+    const existingDeliveries = await prisma.delivery.findMany({
+      where: {
+        date: date as string,
+        shift: shift as string,
+      },
+    });
     
-    const existingDeliveries = new Map<string, Delivery>();
-    deliveriesSnapshot.docs.forEach((doc) => {
-      const delivery = { id: doc.id, ...doc.data() } as Delivery;
-      existingDeliveries.set(delivery.customerId, delivery);
+    const deliveryMap = new Map<string, any>();
+    existingDeliveries.forEach((d) => {
+      deliveryMap.set(d.customerId, d);
     });
     
     // Combine customers with their deliveries
     const deliveryData = customers.map((customer) => {
-      const existingDelivery = existingDeliveries.get(customer.id);
+      const existingDelivery = deliveryMap.get(customer.id);
       const quota = shift === Shift.MORNING ? customer.morningQuota : customer.eveningQuota;
+
+      if (existingDelivery) {
+        return {
+           ...existingDelivery,
+           customerName: customer.name
+        } as unknown as Delivery;
+      }
       
-      return existingDelivery || {
+      return {
         id: '',
         customerId: customer.id,
         customerName: customer.name,
@@ -78,7 +76,7 @@ export const getDeliveriesByDateAndShift = async (
         delivered: false,
         createdAt: null,
         updatedAt: null,
-      };
+      } as unknown as Delivery;
     });
     
     const response: ApiResponse<typeof deliveryData> = {
@@ -107,10 +105,12 @@ export const upsertDelivery = async (
   try {
     const deliveryData: CreateDeliveryDTO = req.body;
     
-    // Get customer details
-    const customerDoc = await customersCollection.doc(deliveryData.customerId).get();
+    // Get customer details for quota
+    const customer = await prisma.customer.findUnique({
+      where: { id: deliveryData.customerId },
+    });
     
-    if (!customerDoc.exists) {
+    if (!customer) {
       const response: ApiResponse<null> = {
         success: false,
         error: 'Customer not found',
@@ -119,78 +119,55 @@ export const upsertDelivery = async (
       return;
     }
     
-    const customer = customerDoc.data() as Customer;
     const quota = deliveryData.shift === Shift.MORNING 
       ? customer.morningQuota 
       : customer.eveningQuota;
     
-    // Check if delivery already exists
-    const existingSnapshot = await deliveriesCollection
-      .where('customerId', '==', deliveryData.customerId)
-      .where('date', '==', deliveryData.date)
-      .where('shift', '==', deliveryData.shift)
-      .limit(1)
-      .get();
-    
-    const now = new Date();
-    
-    if (!existingSnapshot.empty) {
-      // Update existing delivery
-      const docRef = existingSnapshot.docs[0].ref;
-      await docRef.update({
-        actualAmount: deliveryData.actualAmount,
-        delivered: deliveryData.delivered,
-        notes: deliveryData.notes || '',
-        updatedAt: now,
-      });
-      
-      const updatedDoc = await docRef.get();
-      const delivery: Delivery = {
-        id: updatedDoc.id,
-        ...updatedDoc.data(),
-        createdAt: updatedDoc.data()?.createdAt?.toDate(),
-        updatedAt: updatedDoc.data()?.updatedAt?.toDate(),
-      } as Delivery;
-      
-      const response: ApiResponse<Delivery> = {
-        success: true,
-        data: delivery,
-        message: 'Delivery updated successfully',
-      };
-      
-      res.json(response);
+    // Manual upsert
+    let delivery = await prisma.delivery.findFirst({
+        where: {
+             customerId: deliveryData.customerId,
+             date: deliveryData.date,
+             shift: deliveryData.shift,
+        }
+    });
+
+    if (delivery) {
+        delivery = await prisma.delivery.update({
+            where: { id: delivery.id },
+            data: {
+                actualAmount: deliveryData.actualAmount,
+                delivered: deliveryData.delivered,
+                notes: deliveryData.notes || '',
+            }
+        });
     } else {
-      // Create new delivery
-      const id = uuidv4();
-      
-      const newDelivery: Delivery = {
-        id,
-        customerId: deliveryData.customerId,
-        customerName: customer.name,
-        date: deliveryData.date,
-        shift: deliveryData.shift,
-        quota,
-        actualAmount: deliveryData.actualAmount,
-        delivered: deliveryData.delivered,
-        notes: deliveryData.notes,
-        createdAt: now,
-        updatedAt: now,
-      };
-      
-      await deliveriesCollection.doc(id).set({
-        ...newDelivery,
-        createdAt: now,
-        updatedAt: now,
-      });
-      
-      const response: ApiResponse<Delivery> = {
-        success: true,
-        data: newDelivery,
-        message: 'Delivery created successfully',
-      };
-      
-      res.status(201).json(response);
+        delivery = await prisma.delivery.create({
+            data: {
+                customerId: deliveryData.customerId,
+                date: deliveryData.date,
+                shift: deliveryData.shift,
+                quota,
+                actualAmount: deliveryData.actualAmount,
+                delivered: deliveryData.delivered,
+                notes: deliveryData.notes,
+            }
+        });
     }
+
+    const responseData = {
+        ...delivery,
+        customerName: customer.name
+    };
+      
+    const response: ApiResponse<Delivery> = {
+      success: true,
+      data: responseData as unknown as Delivery,
+      message: 'Delivery updated successfully',
+    };
+    
+    res.json(response);
+
   } catch (error) {
     console.error('Error upserting delivery:', error);
     const response: ApiResponse<null> = {
@@ -210,61 +187,49 @@ export const bulkUpdateDeliveries = async (
 ): Promise<void> => {
   try {
     const bulkData: BulkDeliveryUpdateDTO = req.body;
-    const batch = db.batch();
-    const now = new Date();
     
-    for (const delivery of bulkData.deliveries) {
-      // Get customer details
-      const customerDoc = await customersCollection.doc(delivery.customerId).get();
-      
-      if (!customerDoc.exists) {
-        continue;
-      }
-      
-      const customer = customerDoc.data() as Customer;
-      const quota = bulkData.shift === Shift.MORNING 
-        ? customer.morningQuota 
-        : customer.eveningQuota;
-      
-      // Check for existing delivery
-      const existingSnapshot = await deliveriesCollection
-        .where('customerId', '==', delivery.customerId)
-        .where('date', '==', bulkData.date)
-        .where('shift', '==', bulkData.shift)
-        .limit(1)
-        .get();
-      
-      if (!existingSnapshot.empty) {
-        // Update existing
-        batch.update(existingSnapshot.docs[0].ref, {
-          actualAmount: delivery.actualAmount,
-          delivered: delivery.delivered,
-          notes: delivery.notes || '',
-          updatedAt: now,
-        });
-      } else {
-        // Create new
-        const id = uuidv4();
-        const docRef = deliveriesCollection.doc(id);
-        
-        batch.set(docRef, {
-          id,
-          customerId: delivery.customerId,
-          customerName: customer.name,
-          date: bulkData.date,
-          shift: bulkData.shift,
-          quota,
-          actualAmount: delivery.actualAmount,
-          delivered: delivery.delivered,
-          notes: delivery.notes || '',
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-    }
-    
-    await batch.commit();
-    
+    await prisma.$transaction(async (tx) => {
+        for (const input of bulkData.deliveries) {
+             const customer = await tx.customer.findUnique({ where: { id: input.customerId } });
+             if (!customer) continue;
+
+             const quota = bulkData.shift === Shift.MORNING 
+                ? customer.morningQuota 
+                : customer.eveningQuota;
+
+             const existing = await tx.delivery.findFirst({
+                 where: {
+                     customerId: input.customerId,
+                     date: bulkData.date,
+                     shift: bulkData.shift
+                 }
+             });
+
+             if (existing) {
+                 await tx.delivery.update({
+                     where: { id: existing.id },
+                     data: {
+                        actualAmount: input.actualAmount,
+                        delivered: input.delivered,
+                        notes: input.notes || '',
+                     }
+                 });
+             } else {
+                 await tx.delivery.create({
+                     data: {
+                        customerId: input.customerId,
+                        date: bulkData.date,
+                        shift: bulkData.shift,
+                        quota,
+                        actualAmount: input.actualAmount,
+                        delivered: input.delivered,
+                        notes: input.notes,
+                     }
+                 });
+             }
+        }
+    });
+
     const response: ApiResponse<null> = {
       success: true,
       message: 'Deliveries updated successfully',
@@ -300,73 +265,54 @@ export const autofillDeliveries = async (
       return;
     }
     
-    // Get all active customers
-    const customersSnapshot = await customersCollection
-      .where('isActive', '==', true)
-      .get();
+    const customers = await prisma.customer.findMany({
+      where: { isActive: true },
+    });
     
-    const batch = db.batch();
-    const now = new Date();
-    const createdDeliveries: Delivery[] = [];
+    let count = 0;
     
-    for (const customerDoc of customersSnapshot.docs) {
-      const customer = { id: customerDoc.id, ...customerDoc.data() } as Customer;
-      const quota = shift === Shift.MORNING ? customer.morningQuota : customer.eveningQuota;
-      
-      // Skip if quota is 0
-      if (quota <= 0) {
-        continue;
-      }
-      
-      // Check for existing delivery
-      const existingSnapshot = await deliveriesCollection
-        .where('customerId', '==', customer.id)
-        .where('date', '==', date)
-        .where('shift', '==', shift)
-        .limit(1)
-        .get();
-      
-      if (existingSnapshot.empty) {
-        // Create new delivery with quota as actual amount
-        const id = uuidv4();
-        const docRef = deliveriesCollection.doc(id);
-        
-        const newDelivery: Delivery = {
-          id,
-          customerId: customer.id,
-          customerName: customer.name,
-          date,
-          shift,
-          quota,
-          actualAmount: quota,
-          delivered: true,
-          createdAt: now,
-          updatedAt: now,
-        };
-        
-        batch.set(docRef, {
-          ...newDelivery,
-          createdAt: now,
-          updatedAt: now,
-        });
-        
-        createdDeliveries.push(newDelivery);
-      } else {
-        // Update existing delivery to delivered with quota
-        batch.update(existingSnapshot.docs[0].ref, {
-          actualAmount: quota,
-          delivered: true,
-          updatedAt: now,
-        });
-      }
-    }
-    
-    await batch.commit();
+    await prisma.$transaction(async (tx) => {
+        for (const customer of customers) {
+            const quota = shift === Shift.MORNING ? customer.morningQuota : customer.eveningQuota;
+            
+            if (quota <= 0) continue;
+
+            const existing = await tx.delivery.findFirst({
+                where: {
+                    customerId: customer.id,
+                    date,
+                    shift
+                }
+            });
+
+            if (existing) {
+                await tx.delivery.update({
+                    where: { id: existing.id },
+                    data: {
+                        actualAmount: quota,
+                        delivered: true,
+                    }
+                });
+            } else {
+                await tx.delivery.create({
+                    data: {
+                        customerId: customer.id,
+                        date,
+                        shift,
+                        quota,
+                        actualAmount: quota,
+                        delivered: true,
+                    }
+                });
+            }
+            count++;
+        }
+    });
     
     const response: ApiResponse<{ count: number }> = {
       success: true,
-      data: { count: createdDeliveries.length },
-      message: `Autofilled ${createdDeliveries.length} deliveries`,
+      data: { count },
+      message: `Autofilled ${count} deliveries`,
     };
     
     res.json(response);
@@ -399,23 +345,16 @@ export const clearDeliveries = async (
       return;
     }
     
-    const snapshot = await deliveriesCollection
-      .where('date', '==', date)
-      .where('shift', '==', shift)
-      .get();
-    
-    const batch = db.batch();
-    const now = new Date();
-    
-    snapshot.docs.forEach((doc) => {
-      batch.update(doc.ref, {
-        actualAmount: 0,
-        delivered: false,
-        updatedAt: now,
-      });
+    await prisma.delivery.updateMany({
+        where: {
+            date,
+            shift,
+        },
+        data: {
+            actualAmount: 0,
+            delivered: false,
+        }
     });
-    
-    await batch.commit();
     
     const response: ApiResponse<null> = {
       success: true,
@@ -443,15 +382,17 @@ export const getTodayTotal = async (
   try {
     const today = new Date().toISOString().split('T')[0];
     
-    const snapshot = await deliveriesCollection
-      .where('date', '==', today)
-      .where('delivered', '==', true)
-      .get();
-    
-    let total = 0;
-    snapshot.docs.forEach((doc) => {
-      total += doc.data().actualAmount || 0;
+    const aggregate = await prisma.delivery.aggregate({
+        where: {
+            date: today,
+            delivered: true,
+        },
+        _sum: {
+            actualAmount: true,
+        }
     });
+    
+    const total = aggregate._sum.actualAmount || 0;
     
     const response: ApiResponse<{ total: number; date: string }> = {
       success: true,

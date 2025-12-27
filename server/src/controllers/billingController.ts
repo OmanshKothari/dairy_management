@@ -6,7 +6,7 @@
  */
 
 import { Request, Response } from 'express';
-import { db, COLLECTIONS } from '../config/firebase.js';
+import prisma from '../lib/prisma.js';
 import {
   CustomerBillingSummary,
   DailyDeliveryRecord,
@@ -15,10 +15,6 @@ import {
   Settings,
   Shift,
 } from '../types/index.js';
-
-const customersCollection = db.collection(COLLECTIONS.CUSTOMERS);
-const deliveriesCollection = db.collection(COLLECTIONS.DELIVERIES);
-const settingsCollection = db.collection(COLLECTIONS.SETTINGS);
 
 /**
  * Get monthly billing summary for all customers
@@ -48,40 +44,51 @@ export const getMonthlyBilling = async (
     const endDate = `${yearNum}-${String(monthNum).padStart(2, '0')}-${lastDay}`;
     
     // Get all active customers
-    const customersSnapshot = await customersCollection
-      .where('isActive', '==', true)
-      .orderBy('name')
-      .get();
+    const customers = await prisma.customer.findMany({
+      where: { isActive: true },
+      orderBy: { name: 'asc' },
+    });
     
+    // Get all deliveries for this month
+    const allDeliveries = await prisma.delivery.findMany({
+      where: {
+        date: {
+          gte: startDate,
+          lte: endDate,
+        },
+        delivered: true,
+      },
+    });
+    
+    // Group deliveries by customer
+    const deliveryMap = new Map<string, typeof allDeliveries>();
+    allDeliveries.forEach(d => {
+       const list = deliveryMap.get(d.customerId) || [];
+       list.push(d);
+       deliveryMap.set(d.customerId, list);
+    });
+
     const billingData: CustomerBillingSummary[] = [];
     
-    for (const customerDoc of customersSnapshot.docs) {
-      const customer = { id: customerDoc.id, ...customerDoc.data() } as Customer;
-      
-      // Get all deliveries for this customer in the month
-      const deliveriesSnapshot = await deliveriesCollection
-        .where('customerId', '==', customer.id)
-        .where('date', '>=', startDate)
-        .where('date', '<=', endDate)
-        .where('delivered', '==', true)
-        .get();
+    for (const customer of customers) {
+      const customerDeliveries = deliveryMap.get(customer.id) || [];
       
       // Calculate totals
       let totalLiters = 0;
       const dailyMap = new Map<string, { morning: number; evening: number }>();
       
-      deliveriesSnapshot.docs.forEach((doc) => {
-        const delivery = doc.data();
+      customerDeliveries.forEach((delivery) => {
         const amount = delivery.actualAmount || 0;
         totalLiters += amount;
         
-        const existing = dailyMap.get(delivery.date) || { morning: 0, evening: 0 };
+        const dateStr = delivery.date as unknown as string;
+        const existing = dailyMap.get(dateStr) || { morning: 0, evening: 0 };
         if (delivery.shift === Shift.MORNING) {
           existing.morning += amount;
         } else {
           existing.evening += amount;
         }
-        dailyMap.set(delivery.date, existing);
+        dailyMap.set(dateStr, existing);
       });
       
       // Convert to daily breakdown array
@@ -149,9 +156,11 @@ export const getCustomerBilling = async (
     const yearNum = parseInt(year as string, 10);
     
     // Get customer
-    const customerDoc = await customersCollection.doc(customerId).get();
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId },
+    });
     
-    if (!customerDoc.exists) {
+    if (!customer) {
       const response: ApiResponse<null> = {
         success: false,
         error: 'Customer not found',
@@ -160,36 +169,38 @@ export const getCustomerBilling = async (
       return;
     }
     
-    const customer = { id: customerDoc.id, ...customerDoc.data() } as Customer;
-    
     // Calculate date range
     const startDate = `${yearNum}-${String(monthNum).padStart(2, '0')}-01`;
     const lastDay = new Date(yearNum, monthNum, 0).getDate();
     const endDate = `${yearNum}-${String(monthNum).padStart(2, '0')}-${lastDay}`;
     
     // Get deliveries
-    const deliveriesSnapshot = await deliveriesCollection
-      .where('customerId', '==', customerId)
-      .where('date', '>=', startDate)
-      .where('date', '<=', endDate)
-      .where('delivered', '==', true)
-      .get();
+    const deliveries = await prisma.delivery.findMany({
+      where: {
+        customerId,
+        date: {
+          gte: startDate,
+          lte: endDate,
+        },
+        delivered: true,
+      },
+    });
     
     let totalLiters = 0;
     const dailyMap = new Map<string, { morning: number; evening: number }>();
     
-    deliveriesSnapshot.docs.forEach((doc) => {
-      const delivery = doc.data();
+    deliveries.forEach((delivery) => {
       const amount = delivery.actualAmount || 0;
       totalLiters += amount;
       
-      const existing = dailyMap.get(delivery.date) || { morning: 0, evening: 0 };
+      const dateStr = delivery.date as unknown as string;
+      const existing = dailyMap.get(dateStr) || { morning: 0, evening: 0 };
       if (delivery.shift === Shift.MORNING) {
         existing.morning += amount;
       } else {
         existing.evening += amount;
       }
-      dailyMap.set(delivery.date, existing);
+      dailyMap.set(dateStr, existing);
     });
     
     const dailyBreakdown: DailyDeliveryRecord[] = Array.from(dailyMap.entries())
@@ -202,8 +213,7 @@ export const getCustomerBilling = async (
       }));
     
     // Get business settings for invoice
-    const settingsDoc = await settingsCollection.doc('default').get();
-    const settings = settingsDoc.exists ? settingsDoc.data() as Settings : null;
+    const settings = await prisma.settings.findUnique({ where: { id: 1 }});
     
     const billingDetail: CustomerBillingSummary & { settings?: Settings | null } = {
       customerId: customer.id,
@@ -215,7 +225,7 @@ export const getCustomerBilling = async (
       pricePerLiter: customer.pricePerLiter,
       totalAmount: totalLiters * customer.pricePerLiter,
       dailyBreakdown,
-      settings,
+      settings: settings as unknown as Settings,
     };
     
     const response: ApiResponse<typeof billingDetail> = {
@@ -245,28 +255,23 @@ export const getTodayRevenue = async (
     const today = new Date().toISOString().split('T')[0];
     
     // Get all deliveries for today
-    const deliveriesSnapshot = await deliveriesCollection
-      .where('date', '==', today)
-      .where('delivered', '==', true)
-      .get();
-    
-    let totalRevenue = 0;
-    const customerAmounts = new Map<string, number>();
-    
-    deliveriesSnapshot.docs.forEach((doc) => {
-      const delivery = doc.data();
-      const existing = customerAmounts.get(delivery.customerId) || 0;
-      customerAmounts.set(delivery.customerId, existing + (delivery.actualAmount || delivery.quantity || 0));
+    const deliveries = await prisma.delivery.findMany({
+      where: {
+        date: today,
+        delivered: true,
+      },
+      include: {
+        customer: true,
+      }
     });
     
-    // Calculate revenue based on customer prices
-    for (const [customerId, amount] of customerAmounts) {
-      const customerDoc = await customersCollection.doc(customerId).get();
-      if (customerDoc.exists) {
-        const pricePerLiter = customerDoc.data()?.pricePerLiter || 0;
-        totalRevenue += amount * pricePerLiter;
-      }
-    }
+    let totalRevenue = 0;
+    
+    deliveries.forEach((delivery) => {
+        const amount = delivery.actualAmount || 0;
+        const price = delivery.customer?.pricePerLiter || 0;
+        totalRevenue += amount * price;
+    });
     
     const response: ApiResponse<{ revenue: number; date: string }> = {
       success: true,
@@ -327,9 +332,11 @@ export const getCustomerInvoice = async (
     const yearNum = parseInt(year as string, 10);
     
     // Get customer
-    const customerDoc = await customersCollection.doc(customerId).get();
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId },
+    });
     
-    if (!customerDoc.exists) {
+    if (!customer) {
       const response: ApiResponse<null> = {
         success: false,
         error: 'Customer not found',
@@ -338,36 +345,38 @@ export const getCustomerInvoice = async (
       return;
     }
     
-    const customer = { id: customerDoc.id, ...customerDoc.data() } as Customer;
-    
     // Calculate date range
     const startDate = `${yearNum}-${String(monthNum).padStart(2, '0')}-01`;
     const lastDay = new Date(yearNum, monthNum, 0).getDate();
     const endDate = `${yearNum}-${String(monthNum).padStart(2, '0')}-${lastDay}`;
     
     // Get deliveries
-    const deliveriesSnapshot = await deliveriesCollection
-      .where('customerId', '==', customerId)
-      .where('date', '>=', startDate)
-      .where('date', '<=', endDate)
-      .where('delivered', '==', true)
-      .get();
+    const deliveries = await prisma.delivery.findMany({
+      where: {
+        customerId,
+        date: {
+            gte: startDate,
+            lte: endDate
+        },
+        delivered: true,
+      }
+    });
     
     let totalLiters = 0;
     const dailyMap = new Map<string, { morning: number; evening: number }>();
     
-    deliveriesSnapshot.docs.forEach((doc) => {
-      const delivery = doc.data();
-      const amount = delivery.actualAmount || delivery.quantity || 0;
+    deliveries.forEach((delivery) => {
+      const amount = delivery.actualAmount || 0;
       totalLiters += amount;
       
-      const existing = dailyMap.get(delivery.date) || { morning: 0, evening: 0 };
+      const dateStr = delivery.date as unknown as string;
+      const existing = dailyMap.get(dateStr) || { morning: 0, evening: 0 };
       if (delivery.shift === Shift.MORNING) {
         existing.morning += amount;
       } else {
         existing.evening += amount;
       }
-      dailyMap.set(delivery.date, existing);
+      dailyMap.set(dateStr, existing);
     });
     
     const dailyBreakdown = Array.from(dailyMap.entries())

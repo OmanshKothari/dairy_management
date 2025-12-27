@@ -6,18 +6,13 @@
  */
 
 import { Request, Response } from 'express';
-import { db, COLLECTIONS } from '../config/firebase.js';
+import prisma from '../lib/prisma.js';
 import {
   Stock,
   CreateStockDTO,
   StockSource,
   ApiResponse,
 } from '../types/index.js';
-import { v4 as uuidv4 } from 'uuid';
-
-const stockCollection = db.collection(COLLECTIONS.STOCK);
-const deliveriesCollection = db.collection(COLLECTIONS.DELIVERIES);
-const settingsCollection = db.collection(COLLECTIONS.SETTINGS);
 
 /**
  * Source name mapping
@@ -39,31 +34,28 @@ export const getAllStock = async (
   try {
     const { startDate, endDate, limit = '50' } = req.query;
     
-    let query: FirebaseFirestore.Query = stockCollection
-      .orderBy('date', 'desc')
-      .orderBy('createdAt', 'desc');
+    const where: any = {};
     
     if (startDate) {
-      query = query.where('date', '>=', startDate);
+      where.date = { gte: startDate as string };
     }
     
     if (endDate) {
-      query = query.where('date', '<=', endDate);
+      where.date = { ...where.date, lte: endDate as string }; // Merge with existing date filter if any
     }
     
-    query = query.limit(parseInt(limit as string, 10));
-    
-    const snapshot = await query.get();
-    
-    const stockRecords: Stock[] = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate(),
-    })) as Stock[];
+    const stockRecords = await prisma.stock.findMany({
+      where,
+      orderBy: [
+        { date: 'desc' },
+        { createdAt: 'desc' },
+      ],
+      take: parseInt(limit as string, 10),
+    });
     
     const response: ApiResponse<Stock[]> = {
       success: true,
-      data: stockRecords,
+      data: stockRecords as unknown as Stock[],
     };
     
     res.json(response);
@@ -87,20 +79,14 @@ export const getRecentCollections = async (
   try {
     const { limit = '10' } = req.query;
     
-    const snapshot = await stockCollection
-      .orderBy('createdAt', 'desc')
-      .limit(parseInt(limit as string, 10))
-      .get();
-    
-    const stockRecords: Stock[] = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate(),
-    })) as Stock[];
+    const stockRecords = await prisma.stock.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: parseInt(limit as string, 10),
+    });
     
     const response: ApiResponse<Stock[]> = {
       success: true,
-      data: stockRecords,
+      data: stockRecords as unknown as Stock[],
     };
     
     res.json(response);
@@ -124,27 +110,19 @@ export const createStock = async (
   try {
     const stockData: CreateStockDTO = req.body;
     
-    const id = uuidv4();
-    const now = new Date();
-    
-    const newStock: Stock = {
-      id,
-      date: stockData.date,
-      shift: stockData.shift,
-      source: stockData.source,
-      sourceName: SOURCE_NAMES[stockData.source],
-      quantity: stockData.quantity,
-      createdAt: now,
-    };
-    
-    await stockCollection.doc(id).set({
-      ...newStock,
-      createdAt: now,
+    const newStock = await prisma.stock.create({
+      data: {
+        date: stockData.date,
+        shift: stockData.shift,
+        source: stockData.source,
+        sourceName: SOURCE_NAMES[stockData.source],
+        quantity: stockData.quantity,
+      },
     });
     
     const response: ApiResponse<Stock> = {
       success: true,
-      data: newStock,
+      data: newStock as unknown as Stock,
       message: 'Stock record created successfully',
     };
     
@@ -169,19 +147,17 @@ export const deleteStock = async (
   try {
     const { id } = req.params;
     
-    const docRef = stockCollection.doc(id);
-    const doc = await docRef.get();
-    
-    if (!doc.exists) {
-      const response: ApiResponse<null> = {
+    const existing = await prisma.stock.findUnique({ where: { id } });
+    if (!existing) {
+       const response: ApiResponse<null> = {
         success: false,
         error: 'Stock record not found',
       };
       res.status(404).json(response);
       return;
     }
-    
-    await docRef.delete();
+
+    await prisma.stock.delete({ where: { id } });
     
     const response: ApiResponse<null> = {
       success: true,
@@ -208,30 +184,25 @@ export const getCurrentInventory = async (
   res: Response
 ): Promise<void> => {
   try {
-    // Get all stock records (total in)
-    const stockSnapshot = await stockCollection.get();
-    let totalStockIn = 0;
-    stockSnapshot.docs.forEach((doc) => {
-      totalStockIn += doc.data().quantity || 0;
+    // Total Stock In
+    const stockAgg = await prisma.stock.aggregate({
+        _sum: { quantity: true }
     });
+    const totalStockIn = stockAgg._sum.quantity || 0;
     
-    // Get all delivered deliveries (total out)
-    const deliveriesSnapshot = await deliveriesCollection
-      .where('delivered', '==', true)
-      .get();
-    let totalDelivered = 0;
-    deliveriesSnapshot.docs.forEach((doc) => {
-      totalDelivered += doc.data().actualAmount || 0;
+    // Total Delivered
+    const deliveryAgg = await prisma.delivery.aggregate({
+        where: { delivered: true },
+        _sum: { actualAmount: true }
     });
+    const totalDelivered = deliveryAgg._sum.actualAmount || 0;
     
     // Calculate current inventory
     const currentInventory = totalStockIn - totalDelivered;
     
     // Get max capacity from settings
-    const settingsDoc = await settingsCollection.doc('default').get();
-    const maxCapacity = settingsDoc.exists 
-      ? settingsDoc.data()?.maxCapacity || 2000 
-      : 2000;
+    const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+    const maxCapacity = settings?.maxCapacity || 2000;
     
     const percentage = Math.min((currentInventory / maxCapacity) * 100, 100);
     

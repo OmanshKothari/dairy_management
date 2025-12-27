@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Customer {
+  id            String   @id @default(uuid())
+  name          String
+  address       String
+  phone         String?
+  category      String
+  morningQuota  Float
+  eveningQuota  Float
+  pricePerLiter Float
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deliveries    Delivery[]
+}
+
+model Delivery {
+  id           String   @id @default(uuid())
+  date         String
+  shift        String
+  quota        Float
+  actualAmount Float
+  delivered    Boolean
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  customerId   String
+  customer     Customer @relation(fields: [customerId], references: [id])
+
+  @@unique([customerId, date, shift], name: "unique_delivery")
+}
+
+model Stock {
+  id         String   @id @default(uuid())
+  date       String
+  shift      String
+  source     String
+  sourceName String
+  quantity   Float
+  createdAt  DateTime @default(now())
+}
+
+model Settings {
+  id                   Int     @id @default(1)
+  businessName         String
+  businessAddress      String
+  businessPhone        String
+  defaultPricePerLiter Float
+  currency             String
+  currencySymbol       String
+  maxCapacity          Float
+  paymentTerms         Int
+}

@@ -6,21 +6,19 @@
  */
 
 import { Request, Response } from 'express';
-import { db, COLLECTIONS } from '../config/firebase.js';
+import prisma from '../lib/prisma.js';
 import { Settings, ApiResponse } from '../types/index.js';
-
-const settingsCollection = db.collection(COLLECTIONS.SETTINGS);
 
 /**
  * Default settings configuration
  */
-const DEFAULT_SETTINGS: Settings = {
+const DEFAULT_SETTINGS: Omit<Settings, 'id'> = {
   businessName: 'MilkyWay Dairy Services',
   businessAddress: '123 Farm Lane, Countryside',
-  businessPhone: '+1 234 567 890',
+  businessPhone: '+91 234 567 890',
   defaultPricePerLiter: 2.0,
-  currency: 'USD',
-  currencySymbol: '$',
+  currency: 'INR',
+  currencySymbol: '₹',
   maxCapacity: 2000,
   paymentTerms: 5,
 };
@@ -33,21 +31,20 @@ export const getSettings = async (
   res: Response
 ): Promise<void> => {
   try {
-    const doc = await settingsCollection.doc('default').get();
+    let settings = await prisma.settings.findUnique({
+      where: { id: 1 },
+    });
     
-    let settings: Settings;
-    
-    if (!doc.exists) {
+    if (!settings) {
       // Create default settings if not exists
-      await settingsCollection.doc('default').set(DEFAULT_SETTINGS);
-      settings = DEFAULT_SETTINGS;
-    } else {
-      settings = doc.data() as Settings;
+      settings = await prisma.settings.create({
+        data: DEFAULT_SETTINGS,
+      });
     }
     
     const response: ApiResponse<Settings> = {
       success: true,
-      data: settings,
+      data: settings as unknown as Settings,
     };
     
     res.json(response);
@@ -71,36 +68,25 @@ export const updateSettings = async (
   try {
     const updateData: Partial<Settings> = req.body;
     
-    const docRef = settingsCollection.doc('default');
-    const doc = await docRef.get();
+    // Remove id from update data if present to avoid errors
+    const { id, ...dataToUpdate } = updateData as any;
+
+    const settings = await prisma.settings.upsert({
+      where: { id: 1 },
+      update: dataToUpdate,
+      create: {
+        ...DEFAULT_SETTINGS,
+        ...dataToUpdate,
+      },
+    });
+      
+    const response: ApiResponse<Settings> = {
+    success: true,
+    data: settings as unknown as Settings,
+    message: 'Settings updated successfully',
+    };
     
-    if (!doc.exists) {
-      // Create with merged defaults and update data
-      const newSettings = { ...DEFAULT_SETTINGS, ...updateData };
-      await docRef.set(newSettings);
-      
-      const response: ApiResponse<Settings> = {
-        success: true,
-        data: newSettings,
-        message: 'Settings created successfully',
-      };
-      
-      res.status(201).json(response);
-    } else {
-      // Update existing settings
-      await docRef.update(updateData);
-      
-      const updatedDoc = await docRef.get();
-      const settings = updatedDoc.data() as Settings;
-      
-      const response: ApiResponse<Settings> = {
-        success: true,
-        data: settings,
-        message: 'Settings updated successfully',
-      };
-      
-      res.json(response);
-    }
+    res.json(response);
   } catch (error) {
     console.error('Error updating settings:', error);
     const response: ApiResponse<null> = {
@@ -119,11 +105,15 @@ export const resetSettings = async (
   res: Response
 ): Promise<void> => {
   try {
-    await settingsCollection.doc('default').set(DEFAULT_SETTINGS);
+    const settings = await prisma.settings.upsert({
+      where: { id: 1 },
+      update: DEFAULT_SETTINGS,
+      create: DEFAULT_SETTINGS,
+    });
     
     const response: ApiResponse<Settings> = {
       success: true,
-      data: DEFAULT_SETTINGS,
+      data: settings as unknown as Settings,
       message: 'Settings reset to defaults',
     };
     

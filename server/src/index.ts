@@ -1,7 +1,7 @@
 /**
  * Daily Dairy Manager - Server Entry Point
  * 
- * Express server with Firebase integration for dairy business management.
+ * Express server with SQLite/Prisma integration for dairy business management.
  * Provides RESTful API endpoints for customers, deliveries, billing, and inventory.
  */
 
