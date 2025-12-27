@@ -38,6 +38,8 @@ import {
 import {
   getDashboardStats,
   getYesterdayComparison,
+  getDeliveryTrends,
+  getSourceStats,
 } from '../controllers/dashboardController.js';
 import {
   getSettings,
@@ -239,6 +241,20 @@ router.get('/dashboard/stats', getDashboardStats);
  * @desc    Get comparison with yesterday
  */
 router.get('/dashboard/comparison', getYesterdayComparison);
+
+/**
+ * @route   GET /api/dashboard/trends
+ * @desc    Get delivery trends
+ * @query   startDate, endDate, customerId
+ */
+router.get('/dashboard/trends', getDeliveryTrends);
+
+/**
+ * @route   GET /api/dashboard/sources
+ * @desc    Get source collection stats
+ * @query   startDate, endDate
+ */
+router.get('/dashboard/sources', getSourceStats);
 
 // ============================================================================
 // Settings Routes

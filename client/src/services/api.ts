@@ -149,7 +149,12 @@ export const deliveryApi = {
     delivered: boolean;
     notes?: string;
   }): Promise<Delivery> => {
-    const response = await api.post<ApiResponse<Delivery>>('/deliveries', data);
+    // Map quantity to actualAmount for backend
+    const payload = {
+      ...data,
+      actualAmount: data.quantity,
+    };
+    const response = await api.post<ApiResponse<Delivery>>('/deliveries', payload);
     if (!response.data.data) throw new Error('Failed to save delivery');
     return response.data.data;
   },
@@ -167,8 +172,9 @@ export const deliveryApi = {
       shift,
       deliveries: entries.map(e => ({
         customerId: e.customerId,
-        quantity: e.quantity,
+        actualAmount: e.quantity, // Map quantity to actualAmount
         delivered: e.delivered,
+        notes: e.notes,
       })),
     });
   },
@@ -345,6 +351,35 @@ export const dashboardApi = {
       yesterday: 0,
       percentageChange: 0,
     };
+  },
+
+  /**
+   * Get delivery trends
+   */
+  getDeliveryTrends: async (
+    startDate?: string,
+    endDate?: string,
+    customerId?: string
+  ): Promise<any[]> => {
+      const params = new URLSearchParams();
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
+      if (customerId) params.append('customerId', customerId);
+
+      const response = await api.get<ApiResponse<any[]>>(`/dashboard/trends?${params}`);
+      return response.data.data || [];
+  },
+
+  /**
+   * Get source statistics
+   */
+  getSourceStats: async (startDate?: string, endDate?: string): Promise<any[]> => {
+      const params = new URLSearchParams();
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
+
+      const response = await api.get<ApiResponse<any[]>>(`/dashboard/sources?${params}`);
+      return response.data.data || [];
   },
 };
 

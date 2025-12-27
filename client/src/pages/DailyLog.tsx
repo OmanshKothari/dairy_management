@@ -1,90 +1,32 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { motion } from 'framer-motion';
-import { RefreshCw, Trash2, Calendar } from 'lucide-react';
-import { Card, Button, LoadingSpinner } from '../components/ui';
+import { 
+  Card, 
+  Button, 
+  Table, 
+  DatePicker, 
+  Select, 
+  Space, 
+  Tag, 
+  Switch, 
+  InputNumber, 
+  Typography,
+  message,
+  Progress
+} from 'antd';
+import { 
+  ReloadOutlined, 
+  DeleteOutlined, 
+  SaveOutlined
+} from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { deliveryApi, customerApi } from '../services/api';
 import { Customer, DeliveryEntry, Shift } from '../types';
-import { getTodayString } from '../utils/helpers';
-import toast from 'react-hot-toast';
 
-interface DeliveryRowProps {
-  customer: Customer;
-  entry: DeliveryEntry | undefined;
-  shift: Shift;
-  onToggle: (customerId: string, delivered: boolean) => void;
-  onQuantityChange: (customerId: string, quantity: number) => void;
-}
-
-const DeliveryRow: React.FC<DeliveryRowProps> = ({
-  customer,
-  entry,
-  shift,
-  onToggle,
-  onQuantityChange,
-}) => {
-  const quota = shift === Shift.MORNING ? customer.morningQuota : customer.eveningQuota;
-  const isDelivered = entry?.delivered ?? false;
-  const actualQuantity = entry?.quantity ?? 0;
-
-  const handleToggle = () => {
-    const newDelivered = !isDelivered;
-    onToggle(customer.id, newDelivered);
-    if (newDelivered && actualQuantity === 0) {
-      onQuantityChange(customer.id, quota);
-    } else if (!newDelivered) {
-      onQuantityChange(customer.id, 0);
-    }
-  };
-
-  return (
-    <motion.tr
-      initial={{ opacity: 0, x: -20 }}
-      animate={{ opacity: 1, x: 0 }}
-      className="border-b border-gray-100 last:border-0"
-    >
-      <td className="py-4 pr-4">
-        <div>
-          <p className="font-semibold text-gray-900">{customer.name}</p>
-          <p className="text-sm text-gray-500">{customer.address}</p>
-        </div>
-      </td>
-      <td className="px-4 py-4 text-center">
-        <span className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
-          {quota} L
-        </span>
-      </td>
-      <td className="px-4 py-4 text-center">
-        <button
-          onClick={handleToggle}
-          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-            isDelivered ? 'bg-blue-600' : 'bg-gray-200'
-          }`}
-          role="switch"
-          aria-checked={isDelivered}
-        >
-          <span
-            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-              isDelivered ? 'translate-x-5' : 'translate-x-0'
-            }`}
-          />
-        </button>
-      </td>
-      <td className="pl-4 py-4">
-        <input
-          type="number"
-          min="0"
-          step="0.5"
-          value={actualQuantity}
-          onChange={(e) => onQuantityChange(customer.id, parseFloat(e.target.value) || 0)}
-          className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-center text-sm font-medium focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-        />
-      </td>
-    </motion.tr>
-  );
-};
+const { Option } = Select;
+const { Title, Text } = Typography;
 
 const DailyLog: React.FC = () => {
-  const [date, setDate] = useState(getTodayString());
+  const [date, setDate] = useState(dayjs());
   const [shift, setShift] = useState<Shift>(Shift.MORNING);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [deliveries, setDeliveries] = useState<Map<string, DeliveryEntry>>(new Map());
@@ -94,9 +36,11 @@ const DailyLog: React.FC = () => {
   const fetchData = useCallback(async () => {
     try {
       setIsLoading(true);
+      const dateStr = date.format('YYYY-MM-DD');
+      
       const [customersData, deliveriesData] = await Promise.all([
         customerApi.getAll(),
-        deliveryApi.getByDate(date, shift),
+        deliveryApi.getByDate(dateStr, shift),
       ]);
 
       setCustomers(customersData.filter((c: Customer) => c.isActive));
@@ -112,7 +56,7 @@ const DailyLog: React.FC = () => {
       setDeliveries(deliveryMap);
     } catch (error) {
       console.error('Failed to fetch data:', error);
-      toast.error('Failed to load delivery data');
+      message.error('Failed to load delivery data');
     } finally {
       setIsLoading(false);
     }
@@ -126,10 +70,21 @@ const DailyLog: React.FC = () => {
     setDeliveries((prev) => {
       const newMap = new Map(prev);
       const existing = newMap.get(customerId);
+      const customer = customers.find(c => c.id === customerId);
+      const quota = shift === Shift.MORNING ? customer?.morningQuota : customer?.eveningQuota;
+      
+      // Auto-set quantity to quota if marking as delivered and quantity is 0
+      let quantity = existing?.quantity ?? 0;
+      if (delivered && quantity === 0) {
+          quantity = quota || 0;
+      } else if (!delivered) {
+          quantity = 0;
+      }
+
       newMap.set(customerId, {
         customerId,
         delivered,
-        quantity: existing?.quantity ?? 0,
+        quantity,
       });
       return newMap;
     });
@@ -141,7 +96,7 @@ const DailyLog: React.FC = () => {
       const existing = newMap.get(customerId);
       newMap.set(customerId, {
         customerId,
-        delivered: existing?.delivered ?? false,
+        delivered: existing?.delivered ?? true, // Auto-mark as delivered if quantity changed? Maybe keep as is.
         quantity,
       });
       return newMap;
@@ -151,12 +106,12 @@ const DailyLog: React.FC = () => {
   const handleAutofillAll = async () => {
     try {
       setIsSaving(true);
-      await deliveryApi.autofill(date, shift);
-      toast.success('Deliveries autofilled from quotas');
+      await deliveryApi.autofill(date.format('YYYY-MM-DD'), shift);
+      message.success('Deliveries autofilled from quotas');
       await fetchData();
     } catch (error) {
       console.error('Failed to autofill:', error);
-      toast.error('Failed to autofill deliveries');
+      message.error('Failed to autofill deliveries');
     } finally {
       setIsSaving(false);
     }
@@ -165,12 +120,12 @@ const DailyLog: React.FC = () => {
   const handleClear = async () => {
     try {
       setIsSaving(true);
-      await deliveryApi.clear(date, shift);
-      toast.success('Deliveries cleared');
+      await deliveryApi.clear(date.format('YYYY-MM-DD'), shift);
+      message.success('Deliveries cleared');
       await fetchData();
     } catch (error) {
       console.error('Failed to clear:', error);
-      toast.error('Failed to clear deliveries');
+      message.error('Failed to clear deliveries');
     } finally {
       setIsSaving(false);
     }
@@ -180,11 +135,11 @@ const DailyLog: React.FC = () => {
     try {
       setIsSaving(true);
       const entries = Array.from(deliveries.values());
-      await deliveryApi.bulkUpdate(date, shift, entries);
-      toast.success('Deliveries saved successfully');
+      await deliveryApi.bulkUpdate(date.format('YYYY-MM-DD'), shift, entries);
+      message.success('Deliveries saved successfully');
     } catch (error) {
       console.error('Failed to save:', error);
-      toast.error('Failed to save deliveries');
+      message.error('Failed to save deliveries');
     } finally {
       setIsSaving(false);
     }
@@ -195,124 +150,156 @@ const DailyLog: React.FC = () => {
     0
   );
 
+  const totalDeliveredCustomers = Array.from(deliveries.values()).filter(d => d.delivered).length;
+
+  const completionPercentage = Math.round((totalDeliveredCustomers / customers.length) * 100) || 0;
+
+  const columns = [
+    {
+      title: 'Customer',
+      dataIndex: 'name',
+      key: 'name',
+      render: (text: string, record: Customer) => (
+          <div>
+              <div className="font-medium">{text}</div>
+              <div className="text-xs text-gray-500">{record.address}</div>
+          </div>
+      )
+    },
+    {
+      title: 'Quota',
+      key: 'quota',
+      render: (_: any, record: Customer) => {
+          const quota = shift === Shift.MORNING ? record.morningQuota : record.eveningQuota;
+          return <Tag color="blue">{quota} L</Tag>;
+      }
+    },
+    {
+      title: 'Status',
+      key: 'status',
+      render: (_: any, record: Customer) => {
+          const entry = deliveries.get(record.id);
+          const isDelivered = entry?.delivered ?? false;
+          return (
+              <Switch 
+                checked={isDelivered}
+                onChange={(checked) => handleToggle(record.id, checked)}
+                checkedChildren="Delivered"
+                unCheckedChildren="Pending"
+              />
+          );
+      }
+    },
+    {
+      title: 'Actual (L)',
+      key: 'quantity',
+      render: (_: any, record: Customer, index: number) => {
+          const entry = deliveries.get(record.id);
+          return (
+              <InputNumber
+                id={`quantity-${index}`}
+                min={0}
+                step={0.5}
+                value={entry?.quantity ?? 0}
+                onChange={(val) => handleQuantityChange(record.id, val || 0)}
+                disabled={!entry?.delivered}
+                style={{ width: 80 }}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const nextInput = document.getElementById(`quantity-${index + 1}`);
+                        if (nextInput) {
+                            (nextInput as HTMLInputElement).focus();
+                            (nextInput as HTMLInputElement).select();
+                        }
+                    }
+                }}
+              />
+          );
+      }
+    }
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Daily Delivery Log</h1>
-          <p className="mt-1 text-gray-500">Track morning & evening deliveries</p>
+          <Title level={2} style={{ margin: 0 }}>Daily Delivery Log</Title>
+          <Text type="secondary">Track morning & evening deliveries</Text>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative">
-            <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-
-          <div className="inline-flex rounded-lg border border-gray-300 p-1">
-            <button
-              onClick={() => setShift(Shift.MORNING)}
-              className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-                shift === Shift.MORNING
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              Morning
-            </button>
-            <button
-              onClick={() => setShift(Shift.EVENING)}
-              className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-                shift === Shift.EVENING
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              Evening
-            </button>
-          </div>
-        </div>
+        <Space wrap>
+          <DatePicker 
+            value={date} 
+            onChange={(val) => setDate(val || dayjs())} 
+            allowClear={false}
+            format="DD MMM YYYY"
+          />
+          
+          <Select 
+            value={shift} 
+            onChange={(val) => setShift(val)} 
+            style={{ width: 120 }}
+          >
+            <Option value={Shift.MORNING}>Morning</Option>
+            <Option value={Shift.EVENING}>Evening</Option>
+          </Select>
+        </Space>
       </div>
 
       <Card>
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              onClick={handleAutofillAll}
-              isLoading={isSaving}
-              leftIcon={<RefreshCw className="h-4 w-4" />}
+        <div className="mb-4">
+             <div className="flex justify-between mb-2">
+                 <Text strong>Shift Progress</Text>
+                 <Text>{completionPercentage}% Completed</Text>
+             </div>
+             <Progress percent={completionPercentage} status="active" />
+        </div>
+
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+          <Space>
+            <Button 
+                onClick={handleAutofillAll} 
+                loading={isSaving}
+                icon={<ReloadOutlined />}
             >
               Autofill All
             </Button>
-            <Button
-              variant="ghost"
-              onClick={handleClear}
-              isLoading={isSaving}
-              leftIcon={<Trash2 className="h-4 w-4" />}
+            <Button 
+                onClick={handleClear} 
+                loading={isSaving}
+                icon={<DeleteOutlined />}
             >
               Clear
             </Button>
-          </div>
+          </Space>
 
-          <div className="flex items-center gap-4">
-            <div className="text-sm text-gray-600">
-              Total: <span className="text-lg font-bold text-gray-900">{totalDelivered.toFixed(1)}</span>{' '}
-              <span className="font-medium">L</span>
+          <Space size="large">
+            <div className="text-right">
+              <Text type="secondary" className="block text-xs">Total Delivered</Text>
+              <Text strong className="text-lg">{totalDelivered.toFixed(1)} L</Text>
             </div>
-            <Button onClick={handleSave} isLoading={isSaving}>
+            <Button 
+                type="primary" 
+                onClick={handleSave} 
+                loading={isSaving}
+                icon={<SaveOutlined />}
+                size="large"
+            >
               Save Changes
             </Button>
-          </div>
+          </Space>
         </div>
 
-        {isLoading ? (
-          <div className="flex h-64 items-center justify-center">
-            <LoadingSpinner size="lg" />
-          </div>
-        ) : customers.length === 0 ? (
-          <div className="py-12 text-center">
-            <p className="text-gray-500">No active customers found</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="pb-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Customer
-                  </th>
-                  <th className="pb-3 text-center text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Quota
-                  </th>
-                  <th className="pb-3 text-center text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Status
-                  </th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Actual (L)
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {customers.map((customer) => (
-                  <DeliveryRow
-                    key={customer.id}
-                    customer={customer}
-                    entry={deliveries.get(customer.id)}
-                    shift={shift}
-                    onToggle={handleToggle}
-                    onQuantityChange={handleQuantityChange}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <Table
+            dataSource={customers}
+            columns={columns}
+            rowKey="id"
+            loading={isLoading}
+            pagination={false}
+            scroll={{ y: 600 }}
+            size="middle"
+        />
       </Card>
     </div>
   );

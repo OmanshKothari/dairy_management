@@ -96,7 +96,8 @@ export interface Stock {
   id: string;
   date: string;
   shift: Shift;
-  source: StockSource;
+  source: string; // Changed from StockSource enum to string (ID)
+  sourceName: string; // Added sourceName
   quantity: number;
   createdAt?: Date;
 }
@@ -107,7 +108,7 @@ export interface Stock {
 export interface StockFormData {
   date: string;
   shift: Shift;
-  source: StockSource;
+  source: string; // Changed from StockSource enum to string
   quantity: number;
 }
 

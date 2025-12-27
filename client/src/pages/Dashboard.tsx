@@ -9,13 +9,17 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip as RechartsTooltip,
   ResponsiveContainer,
+  LineChart,
+  Line,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
 } from 'recharts';
 import {
   Droplet,
@@ -27,14 +31,19 @@ import {
   FileText,
 } from 'lucide-react';
 import { ArrowRightOutlined } from '@ant-design/icons';
-import { Card, Statistic, Row, Col, Button, Spin, Typography, Alert, Space } from 'antd';
+import { Card, Statistic, Row, Col, Button, Spin, Typography, Alert, Space, DatePicker, Select } from 'antd';
 import { useSettings } from '../contexts/SettingsContext';
-import { dashboardApi } from '../services/api';
-import { DashboardStats, YesterdayComparison } from '../types';
+import { dashboardApi, customerApi } from '../services/api';
+import { DashboardStats, YesterdayComparison, Customer } from '../types';
 import { getGreeting, getCurrentShift } from '../utils/helpers';
 import toast from 'react-hot-toast';
+import dayjs, { Dayjs } from 'dayjs';
 
 const { Title, Text } = Typography;
+const { RangePicker } = DatePicker;
+
+// Colors for Pie Chart
+const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
 /**
  * Dashboard Page Component
@@ -43,20 +52,29 @@ const Dashboard: React.FC = () => {
   const { formatCurrency } = useSettings();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [comparison, setComparison] = useState<YesterdayComparison | null>(null);
+  const [trends, setTrends] = useState<any[]>([]);
+  const [sourceStats, setSourceStats] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Filter States
+  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(30, 'days'), dayjs()]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('all');
 
   const currentShift = getCurrentShift();
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchInitialData = async () => {
       try {
         setIsLoading(true);
-        const [statsData, comparisonData] = await Promise.all([
+        const [statsData, comparisonData, customersList] = await Promise.all([
           dashboardApi.getStats(),
           dashboardApi.getComparison(),
+          customerApi.getAll(undefined, true), // Get active customers
         ]);
         setStats(statsData);
         setComparison(comparisonData);
+        setCustomers(customersList);
       } catch (error) {
         console.error('Failed to load dashboard data:', error);
         toast.error('Failed to load dashboard data');
@@ -65,8 +83,32 @@ const Dashboard: React.FC = () => {
       }
     };
 
-    fetchData();
+    fetchInitialData();
   }, []);
+
+  // Fetch reports when filters change
+  useEffect(() => {
+    const fetchReports = async () => {
+        try {
+            const [start, end] = dateRange;
+            const startDate = start.format('YYYY-MM-DD');
+            const endDate = end.format('YYYY-MM-DD');
+
+            const [trendsData, sourcesData] = await Promise.all([
+                dashboardApi.getDeliveryTrends(startDate, endDate, selectedCustomerId),
+                dashboardApi.getSourceStats(startDate, endDate),
+            ]);
+            setTrends(trendsData);
+            setSourceStats(sourcesData);
+        } catch (error) {
+            console.error('Failed to load report data:', error);
+        }
+    };
+
+    if (dateRange && dateRange[0] && dateRange[1]) {
+        fetchReports();
+    }
+  }, [dateRange, selectedCustomerId]);
 
   if (isLoading) {
     return (
@@ -167,44 +209,94 @@ const Dashboard: React.FC = () => {
         </Col>
       </Row>
 
-      {/* Charts and Quick Actions */}
+      {/* Charts Section */}
       <Row gutter={[24, 24]} style={{ marginTop: 24 }}>
-        <Col xs={24} lg={16}>
-          <Card title="Weekly Delivery Overview" bordered={false}>
-            <div style={{ height: 300 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={stats?.weeklyOverview || []}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis 
-                    dataKey="day" 
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: '#6b7280', fontSize: 12 }}
-                  />
-                  <YAxis 
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: '#6b7280', fontSize: 12 }}
-                  />
-                  <RechartsTooltip
-                    contentStyle={{
-                      backgroundColor: '#fff',
-                      border: 'none',
-                      borderRadius: '8px',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                    }}
-                    formatter={(value: number) => [`${value} L`, 'Delivered']}
-                  />
-                  <Bar 
-                    dataKey="amount" 
-                    fill="#1890ff" 
-                    radius={[6, 6, 0, 0]}
-                    maxBarSize={50}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
+        <Col span={24}>
+            <Card title={
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                    <span>Analytics & Reports</span>
+                    <Space>
+                        <Select
+                            value={selectedCustomerId}
+                            onChange={setSelectedCustomerId}
+                            style={{ width: 200 }}
+                            placeholder="Filter by Customer"
+                        >
+                            <Select.Option value="all">All Customers</Select.Option>
+                            {customers.map(c => (
+                                <Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>
+                            ))}
+                        </Select>
+                        <RangePicker 
+                            value={dateRange}
+                            onChange={(dates) => {
+                                if (dates && dates[0] && dates[1]) {
+                                    setDateRange([dates[0], dates[1]]);
+                                }
+                            }}
+                            allowClear={false}
+                        />
+                    </Space>
+                </div>
+            } bordered={false}>
+                <Row gutter={[24, 24]}>
+                    <Col xs={24} lg={16}>
+                        <Title level={5}>Milk Distribution Trend</Title>
+                        <div style={{ height: 300 }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={trends}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                <XAxis 
+                                    dataKey="date" 
+                                    tickFormatter={(val) => dayjs(val).format('MMM D')}
+                                    tick={{ fill: '#6b7280', fontSize: 12 }}
+                                />
+                                <YAxis 
+                                    tick={{ fill: '#6b7280', fontSize: 12 }}
+                                />
+                                <RechartsTooltip
+                                    labelFormatter={(val) => dayjs(val).format('MMMM D, YYYY')}
+                                    formatter={(value: number) => [`${value} L`, 'Distributed']}
+                                />
+                                <Line 
+                                    type="monotone" 
+                                    dataKey="amount" 
+                                    stroke="#1890ff" 
+                                    strokeWidth={3}
+                                    dot={{ r: 4 }}
+                                    activeDot={{ r: 8 }}
+                                />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </Col>
+                    <Col xs={24} lg={8}>
+                        <Title level={5}>Source Contribution</Title>
+                        <div style={{ height: 300 }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie
+                                        data={sourceStats}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={60}
+                                        outerRadius={80}
+                                        fill="#8884d8"
+                                        paddingAngle={5}
+                                        dataKey="value"
+                                    >
+                                        {sourceStats.map((_, index) => (
+                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                        ))}
+                                    </Pie>
+                                    <RechartsTooltip />
+                                    <Legend />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </Col>
+                </Row>
+            </Card>
         </Col>
 
         <Col xs={24} lg={8}>

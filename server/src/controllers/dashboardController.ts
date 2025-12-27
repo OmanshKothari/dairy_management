@@ -235,3 +235,122 @@ export const getYesterdayComparison = async (
     res.status(500).json(response);
   }
 };
+
+/**
+ * Get delivery trends (daily totals) for a date range
+ */
+export const getDeliveryTrends = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { startDate, endDate, customerId } = req.query;
+    
+    // Default to last 30 days if not provided
+    let start = startDate ? new Date(String(startDate)) : new Date();
+    let end = endDate ? new Date(String(endDate)) : new Date();
+    
+    if (!startDate) {
+        start.setDate(end.getDate() - 30);
+    }
+
+    const whereClause: any = {
+        date: {
+            gte: formatDate(start),
+            lte: formatDate(end),
+        },
+        delivered: true,
+    };
+
+    if (customerId && customerId !== 'all') {
+        whereClause.customerId = String(customerId);
+    }
+
+    const deliveries = await prisma.delivery.groupBy({
+        by: ['date'],
+        where: whereClause,
+        _sum: {
+            actualAmount: true,
+        },
+        orderBy: {
+            date: 'asc',
+        },
+    });
+
+    const data = deliveries.map(d => ({
+        date: d.date,
+        amount: d._sum.actualAmount || 0,
+    }));
+
+    const response: ApiResponse<any[]> = {
+        success: true,
+        data,
+    };
+
+    res.json(response);
+  } catch (error) {
+    console.error('Error fetching delivery trends:', error);
+    const response: ApiResponse<null> = {
+        success: false,
+        error: 'Failed to fetch delivery trends',
+    };
+    res.status(500).json(response);
+  }
+};
+
+/**
+ * Get source statistics (collection by source)
+ */
+export const getSourceStats = async (
+    req: Request,
+    res: Response
+  ): Promise<void> => {
+    try {
+      const { startDate, endDate } = req.query;
+      
+      // Default to last 30 days if not provided
+      let start = startDate ? new Date(String(startDate)) : new Date();
+      let end = endDate ? new Date(String(endDate)) : new Date();
+      
+      if (!startDate) {
+          start.setDate(end.getDate() - 30);
+      }
+  
+      const stocks = await prisma.stock.findMany({
+          where: {
+              date: {
+                  gte: formatDate(start),
+                  lte: formatDate(end),
+              },
+          },
+      });
+
+      // Group by sourceName manually since we want display names
+      const sourceMap = new Map<string, number>();
+      
+      stocks.forEach(stock => {
+          const name = stock.sourceName || 'Unknown';
+          const qty = stock.quantity || 0;
+          sourceMap.set(name, (sourceMap.get(name) || 0) + qty);
+      });
+
+      const data = Array.from(sourceMap.entries()).map(([name, value]) => ({
+          name,
+          value
+      }));
+  
+      const response: ApiResponse<any[]> = {
+          success: true,
+          data,
+      };
+  
+      res.json(response);
+    } catch (error) {
+      console.error('Error fetching source stats:', error);
+      const response: ApiResponse<null> = {
+          success: false,
+          error: 'Failed to fetch source stats',
+      };
+      res.status(500).json(response);
+    }
+  };
