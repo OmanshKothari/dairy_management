@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="dropGradient" x1="16" y1="4" x2="16" y2="28" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#60A5FA"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+  </defs>
+  <path d="M16 4C16 4 8 14 8 20C8 24.4183 11.5817 28 16 28C20.4183 28 24 24.4183 24 20C24 14 16 4 16 4Z" fill="url(#dropGradient)"/>
+  <ellipse cx="13" cy="18" rx="2" ry="2.5" fill="white" fill-opacity="0.6"/>
+</svg>
