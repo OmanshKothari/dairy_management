@@ -1,13 +1,12 @@
 /**
  * Layout Component
  * 
- * Main layout wrapper that includes the sidebar navigation and header.
- * Provides consistent structure across all pages.
+ * Main layout wrapper using Ant Design components.
  */
 
-import React from 'react';
-import { NavLink, useLocation, Outlet } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import React, { useState } from 'react';
+import { useLocation, Outlet, useNavigate } from 'react-router-dom';
+import { Layout as AntLayout, Menu, Button, Avatar, Typography } from 'antd';
 import {
   LayoutDashboard,
   ClipboardList,
@@ -16,122 +15,129 @@ import {
   Package,
   Droplet,
   DollarSign,
-  Lightbulb,
 } from 'lucide-react';
+import {
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  InfoCircleOutlined,
+} from '@ant-design/icons';
 import { useSettings } from '../contexts/SettingsContext';
+import OnboardingTour from './OnboardingTour';
 
-/**
- * Navigation items configuration
- */
-const navItems = [
-  { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/daily-log', label: 'Daily Log', icon: ClipboardList },
-  { path: '/customers', label: 'Customers', icon: Users },
-  { path: '/billing', label: 'Billing', icon: Receipt },
-  { path: '/stock', label: 'Stock', icon: Package },
-];
+const { Header, Sider, Content } = AntLayout;
+const { Title, Text } = Typography;
 
-/**
- * Layout Component
- */
 const Layout: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const { settings } = useSettings();
+  const [collapsed, setCollapsed] = useState(false);
+
+  const menuItems = [
+    { key: '/dashboard', icon: <LayoutDashboard size={18} />, label: 'Dashboard' },
+    { key: '/daily-log', icon: <ClipboardList size={18} />, label: 'Daily Log' },
+    { key: '/customers', icon: <Users size={18} />, label: 'Customers' },
+    { key: '/billing', icon: <Receipt size={18} />, label: 'Billing' },
+    { key: '/stock', icon: <Package size={18} />, label: 'Stock' },
+    { key: '/sources', icon: <MenuFoldOutlined size={18} />, data: { "menu-id": "/sources" }, label: 'Sources' }, 
+  ];
+
+  const handleMenuClick = (e: { key: string }) => {
+    navigate(e.key);
+  };
+
+  // Determine active key from location
+  const activeKey = location.pathname === '/' ? '/dashboard' : location.pathname;
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      {/* Sidebar */}
-      <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-sidebar-dark shadow-sidebar">
-        <div className="flex h-full flex-col">
-          {/* Logo Section */}
-          <div className="flex items-center gap-3 border-b border-gray-700/50 px-6 py-5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-blue-400 to-blue-600">
-              <Droplet className="h-6 w-6 text-white" />
-            </div>
+    <AntLayout style={{ minHeight: '100vh' }}>
+      <Sider 
+        trigger={null} 
+        collapsible 
+        collapsed={collapsed} 
+        width={240}
+        style={{ 
+          background: '#FFFFFF', 
+          borderRight: '1px solid #f0f0f0',
+          position: 'fixed',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          zIndex: 100
+        }}
+        theme="light"
+      >
+        <div style={{ height: 64, margin: 16, display: 'flex', alignItems: 'center', gap: 12, overflow: 'hidden' }}>
+          <div style={{ 
+            minWidth: 40, height: 40, 
+            borderRadius: 8, 
+            background: 'linear-gradient(135deg, #4285F4 0%, #1A73E8 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'white'
+          }}>
+            <Droplet size={24} />
+          </div>
+          {!collapsed && (
             <div>
-              <h1 className="font-display text-lg font-bold text-white">
-                Daily Dairy
-              </h1>
-              <span className="text-sm text-blue-400">Manager</span>
+              <Title level={5} style={{ margin: 0, color: '#1a73e8' }}>Dairy Manager</Title>
+              <Text type="secondary" style={{ fontSize: 12 }}>Daily Operations</Text>
             </div>
-          </div>
-
-          {/* Navigation */}
-          <nav className="flex-1 space-y-1 px-3 py-4">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = location.pathname === item.path;
-
-              return (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  className={`group relative flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-all duration-200 ${
-                    isActive
-                      ? 'bg-blue-600 text-white shadow-md'
-                      : 'text-gray-300 hover:bg-sidebar-hover hover:text-white'
-                  }`}
-                >
-                  {isActive && (
-                    <motion.div
-                      layoutId="activeIndicator"
-                      className="absolute left-0 h-full w-1 rounded-r-full bg-white"
-                      initial={false}
-                      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                    />
-                  )}
-                  <Icon className={`h-5 w-5 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-blue-400'}`} />
-                  <span>{item.label}</span>
-                </NavLink>
-              );
-            })}
-          </nav>
-
-          {/* Pro Tip Section */}
-          <div className="mx-3 mb-4 rounded-lg bg-sidebar-hover p-4">
-            <div className="flex items-center gap-2 text-yellow-400">
-              <Lightbulb className="h-4 w-4" />
-              <span className="text-xs font-semibold uppercase tracking-wide">Pro Tip</span>
-            </div>
-            <p className="mt-2 text-xs leading-relaxed text-gray-400">
-              Update your stock daily to track leakage and ensure accurate billing.
-            </p>
-          </div>
+          )}
         </div>
-      </aside>
-
-      {/* Main Content Area */}
-      <div className="ml-64 flex flex-1 flex-col">
-        {/* Header */}
-        <header className="sticky top-0 z-30 border-b border-gray-200 bg-white px-8 py-4">
-          <div className="flex items-center justify-end gap-4">
-            {/* Currency Indicator */}
-            <button className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50">
-              <DollarSign className="h-4 w-4" />
-              <span>Currency ({settings.currencySymbol})</span>
-            </button>
-
-            {/* User Avatar */}
-            <div className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-blue-500 bg-blue-50 text-sm font-semibold text-blue-600">
-              O
-            </div>
+        
+        <Menu
+          mode="inline"
+          selectedKeys={[activeKey]}
+          items={menuItems.map(item => ({
+              ...item,
+              'data-menu-id': item.key // Helper for Tour to find target
+          }))}
+          onClick={handleMenuClick}
+          style={{ borderRight: 0 }}
+        />
+        
+        {!collapsed && (
+          <div style={{ position: 'absolute', bottom: 20, left: 16, right: 16 }}>
+             <div style={{ background: '#E8F0FE', padding: 12, borderRadius: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#1967D2', marginBottom: 4 }}>
+                   <InfoCircleOutlined size={16} /> 
+                   <Text strong style={{ color: '#1967D2', fontSize: 12 }}>PRO TIP</Text>
+                </div>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  Update stock daily to prevent inventory mismatches.
+                </Text>
+             </div>
           </div>
-        </header>
-
-        {/* Page Content */}
-        <main className="flex-1 p-8">
-          <motion.div
-            key={location.pathname}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
-          >
-            <Outlet />
-          </motion.div>
-        </main>
-      </div>
-    </div>
+        )}
+      </Sider>
+      
+      <AntLayout style={{ marginLeft: collapsed ? 80 : 240, transition: 'all 0.2s' }}>
+        <Header style={{ padding: '0 24px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, zIndex: 99 }}>
+          <Button
+            type="text"
+            icon={collapsed ? <MenuUnfoldOutlined size={20} /> : <MenuFoldOutlined size={20} />}
+            onClick={() => setCollapsed(!collapsed)}
+            style={{
+              fontSize: '16px',
+              width: 64,
+              height: 64,
+            }}
+          />
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <Button icon={<DollarSign size={16} />} style={{ borderRadius: 20 }}>
+               Currency ({settings.currencySymbol})
+            </Button>
+            <Avatar style={{ backgroundColor: '#e8f0fe', color: '#1a73e8' }}>O</Avatar>
+          </div>
+        </Header>
+        
+        <Content style={{ margin: '24px 16px', padding: 24, minHeight: 280 }}>
+          <Outlet />
+          <OnboardingTour />
+        </Content>
+      </AntLayout>
+    </AntLayout>
   );
 };
 

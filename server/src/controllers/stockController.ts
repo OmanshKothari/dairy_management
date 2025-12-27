@@ -10,19 +10,8 @@ import prisma from '../lib/prisma.js';
 import {
   Stock,
   CreateStockDTO,
-  StockSource,
   ApiResponse,
 } from '../types/index.js';
-
-/**
- * Source name mapping
- */
-const SOURCE_NAMES: Record<StockSource, string> = {
-  [StockSource.FARM_A]: 'Farm A',
-  [StockSource.FARM_B]: 'Farm B',
-  [StockSource.MARKET]: 'Market',
-  [StockSource.OTHER]: 'Other',
-};
 
 /**
  * Get all stock records with optional date filtering
@@ -110,12 +99,45 @@ export const createStock = async (
   try {
     const stockData: CreateStockDTO = req.body;
     
+    // Validate source from DB
+    // We expect stockData.source to be the ID or Name of the Dynamic Source.
+    // For backward compatibility or ease, let's assume UI sends the Source Name or ID.
+    // Ideally, we link relation, but for now we store the string values as per schema.
+    
+    const source = await prisma.source.findUnique({
+        where: { name: stockData.source as string } // Assuming source passed is the Name
+    });
+
+    if (!source) {
+         // Fallback check if it's an ID
+         const sourceById = await prisma.source.findUnique({
+             where: { id: stockData.source as string }
+         });
+         
+         if (!sourceById) {
+            const response: ApiResponse<null> = {
+                success: false,
+                error: 'Invalid source. Please select a valid source.',
+            };
+            res.status(400).json(response);
+            return;
+         }
+    }
+
+    // Logic: If source found, use its name for storage to keep historical data intact?
+    // Or we should store sourceID. The current schema `Stock` has `source` and `sourceName` as Strings.
+    // Plan: `source` = ID/Key, `sourceName` = Human Readable.
+    
+    const sourceName = source ? source.name : await prisma.source.findUnique({
+        where: { id: stockData.source as string }
+    }).then(s => s?.name || 'Unknown');
+
     const newStock = await prisma.stock.create({
       data: {
         date: stockData.date,
         shift: stockData.shift,
-        source: stockData.source,
-        sourceName: SOURCE_NAMES[stockData.source],
+        source: stockData.source as string, // Store key/ID
+        sourceName: sourceName,
         quantity: stockData.quantity,
       },
     });
@@ -177,7 +199,6 @@ export const deleteStock = async (
 
 /**
  * Calculate current inventory level
- * Current Inventory = Total Stock In - Total Deliveries
  */
 export const getCurrentInventory = async (
   req: Request,
@@ -233,21 +254,28 @@ export const getCurrentInventory = async (
 };
 
 /**
- * Get stock sources list
+ * Get stock sources list (Dynamic)
  */
 export const getStockSources = async (
   _req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const sources = Object.entries(SOURCE_NAMES).map(([value, label]) => ({
-      value,
-      label,
+    // Fetch active sources from DB
+    const sources = await prisma.source.findMany({
+        where: { isActive: true },
+        orderBy: { name: 'asc' }
+    });
+    
+    const formattedSources = sources.map(source => ({
+        value: source.name, // Using name as value for now to match old enum behavior if possible, or ID
+        label: source.name,
+        type: source.type
     }));
     
-    const response: ApiResponse<typeof sources> = {
+    const response: ApiResponse<typeof formattedSources> = {
       success: true,
-      data: sources,
+      data: formattedSources,
     };
     
     res.json(response);

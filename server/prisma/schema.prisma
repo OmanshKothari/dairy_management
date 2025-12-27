@@ -60,3 +60,12 @@ model Settings {
   maxCapacity          Float
   paymentTerms         Int
 }
+
+model Source {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  type      String   // 'farm', 'market', 'other'
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

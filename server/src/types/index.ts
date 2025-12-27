@@ -34,6 +34,18 @@ export enum StockSource {
 }
 
 /**
+ * Source Model Interface
+ */
+export interface Source {
+  id: string;
+  name: string;
+  type: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
  * Customer interface
  * Represents a milk delivery customer with their quotas and pricing
  */

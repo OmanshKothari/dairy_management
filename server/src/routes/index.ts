@@ -44,6 +44,12 @@ import {
   updateSettings,
   resetSettings,
 } from '../controllers/settingsController.js';
+import {
+  getAllSources,
+  createSource,
+  updateSource,
+  deleteSource,
+} from '../controllers/sourceController.js';
 
 const router = Router();
 
@@ -255,6 +261,34 @@ router.put('/settings', updateSettings);
  * @route   POST /api/settings/reset
  * @desc    Reset settings to defaults
  */
-router.post('/settings/reset', resetSettings);
+// ============================================================================
+// Source Routes
+// ============================================================================
+
+/**
+ * @route   GET /api/sources
+ * @desc    Get all active sources
+ */
+router.get('/sources', getAllSources);
+
+/**
+ * @route   POST /api/sources
+ * @desc    Create a new source
+ * @body    { name, type }
+ */
+router.post('/sources', createSource);
+
+/**
+ * @route   PUT /api/sources/:id
+ * @desc    Update a source
+ * @body    { name, type, isActive }
+ */
+router.put('/sources/:id', updateSource);
+
+/**
+ * @route   DELETE /api/sources/:id
+ * @desc    Delete a source
+ */
+router.delete('/sources/:id', deleteSource);
 
 export default router;
