@@ -196,6 +196,18 @@ export const deliveryApi = {
   clear: async (date: string, shift: Shift): Promise<void> => {
     await api.post('/deliveries/clear', { date, shift });
   },
+
+  /**
+   * Get deliveries for a specific customer
+   */
+  getByCustomer: async (id: string, startDate?: string, endDate?: string): Promise<Delivery[]> => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    
+    const response = await api.get<ApiResponse<Delivery[]>>(`/deliveries/customer/${id}?${params}`);
+    return response.data.data || [];
+  },
 };
 
 // ============================================================================
@@ -243,6 +255,11 @@ export const stockApi = {
   getSources: async (): Promise<StockSourceOption[]> => {
     const response = await api.get<ApiResponse<StockSourceOption[]>>('/stock/sources');
     return response.data.data || [];
+  },
+
+  getAvailability: async (date: string): Promise<{ totalStock: number; totalDelivered: number }> => {
+    const response = await api.get<ApiResponse<{ totalStock: number; totalDelivered: number }>>('/stock/availability', { params: { date } });
+    return response.data.data || { totalStock: 0, totalDelivered: 0 };
   },
 
   /**

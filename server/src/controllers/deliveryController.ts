@@ -409,3 +409,53 @@ export const getTodayTotal = async (
     res.status(500).json(response);
   }
 };
+/**
+ * Get deliveries for a specific customer with date range
+ */
+export const getDeliveriesByCustomer = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { startDate, endDate } = req.query;
+    
+    if (!id) {
+      const response: ApiResponse<null> = {
+        success: false,
+        error: 'Customer ID is required',
+      };
+      res.status(400).json(response);
+      return;
+    }
+
+    const whereClause: any = {
+      customerId: id,
+    };
+
+    if (startDate || endDate) {
+      whereClause.date = {};
+      if (startDate) whereClause.date.gte = String(startDate);
+      if (endDate) whereClause.date.lte = String(endDate);
+    }
+
+    const deliveries = await prisma.delivery.findMany({
+      where: whereClause,
+      orderBy: { date: 'desc' },
+    });
+
+    const response: ApiResponse<typeof deliveries> = {
+      success: true,
+      data: deliveries,
+    };
+    
+    res.json(response);
+  } catch (error) {
+    console.error('Error fetching customer deliveries:', error);
+    const response: ApiResponse<null> = {
+      success: false,
+      error: 'Failed to fetch customer deliveries',
+    };
+    res.status(500).json(response);
+  }
+};

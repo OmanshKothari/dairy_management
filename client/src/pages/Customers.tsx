@@ -26,12 +26,16 @@ import {
     UserOutlined,
     PhoneOutlined,
     EnvironmentOutlined,
-    DollarOutlined
+    DollarOutlined,
+    HistoryOutlined,
+    SearchOutlined,
+    FilterOutlined
 } from '@ant-design/icons';
 import { useSettings } from '../contexts/SettingsContext';
 import { customerApi } from '../services/api';
 import { Customer, CustomerFormData, CustomerCategory } from '../types';
 import { stringToColor } from '../utils/helpers';
+import CustomerHistoryModal from '../components/CustomerHistoryModal';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -44,6 +48,12 @@ const Customers: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  
+  const [searchText, setSearchText] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<CustomerCategory | 'ALL'>('ALL');
+  
+  const [historyCustomer, setHistoryCustomer] = useState<Customer | null>(null);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   
   const [form] = Form.useForm();
 
@@ -59,6 +69,13 @@ const Customers: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  const filteredCustomers = customers.filter(c => {
+    const matchesSearch = c.name.toLowerCase().includes(searchText.toLowerCase()) || 
+                         c.address.toLowerCase().includes(searchText.toLowerCase());
+    const matchesCategory = categoryFilter === 'ALL' || c.category === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
 
   useEffect(() => {
     fetchCustomers();
@@ -104,6 +121,11 @@ const Customers: React.FC = () => {
     form.resetFields();
   };
 
+  const handleViewHistory = (customer: Customer) => {
+    setHistoryCustomer(customer);
+    setIsHistoryOpen(true);
+  };
+
   const handleSubmit = async (values: CustomerFormData) => {
     try {
       setIsSaving(true);
@@ -142,19 +164,39 @@ const Customers: React.FC = () => {
           <Title level={2} style={{ margin: 0 }}>Customer Management</Title>
           <Text type="secondary">Manage profiles and daily quotas</Text>
         </div>
-        <Button 
-            type="primary" 
-            onClick={handleOpenAdd} 
-            icon={<PlusOutlined />}
-            size="large"
-        >
-          Add Customer
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Input
+            placeholder="Search name or address..."
+            prefix={<SearchOutlined />}
+            value={searchText}
+            onChange={e => setSearchText(e.target.value)}
+            style={{ width: 250 }}
+            allowClear
+          />
+          <Select
+            value={categoryFilter}
+            onChange={setCategoryFilter}
+            style={{ width: 150 }}
+            suffixIcon={<FilterOutlined />}
+          >
+            <Option value="ALL">All Categories</Option>
+            <Option value={CustomerCategory.REGULAR}>Regular</Option>
+            <Option value={CustomerCategory.VARIABLE}>Variable</Option>
+          </Select>
+          <Button 
+              type="primary" 
+              onClick={handleOpenAdd} 
+              icon={<PlusOutlined />}
+              size="large"
+          >
+            Add Customer
+          </Button>
+        </div>
       </div>
 
       <List
         grid={{ gutter: 16, xs: 1, sm: 2, lg: 3, xl: 4 }}
-        dataSource={customers}
+        dataSource={filteredCustomers}
         loading={isLoading}
         locale={{ emptyText: <Empty description="No customers found" /> }}
         renderItem={(customer) => (
@@ -163,6 +205,7 @@ const Customers: React.FC = () => {
                 className="hover:shadow-md transition-shadow"
                 actions={[
                     <Button type="text" icon={<EditOutlined />} onClick={() => handleOpenEdit(customer)}>Edit</Button>,
+                    <Button type="text" icon={<HistoryOutlined />} onClick={() => handleViewHistory(customer)}>History</Button>,
                     <Popconfirm
                         title="Delete customer?"
                         description="This action cannot be undone."
@@ -317,6 +360,12 @@ const Customers: React.FC = () => {
             </div>
         </Form>
       </Modal>
+
+      <CustomerHistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        customer={historyCustomer}
+      />
     </div>
   );
 };

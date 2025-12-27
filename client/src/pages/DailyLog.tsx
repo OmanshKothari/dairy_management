@@ -11,39 +11,55 @@ import {
   InputNumber, 
   Typography,
   message,
-  Progress
+  Progress,
+  Alert,
+  Tooltip,
+  Modal,
+  Input
 } from 'antd';
 import { 
   ReloadOutlined, 
   DeleteOutlined, 
-  SaveOutlined
+  SaveOutlined,
+  WarningOutlined,
+  ExclamationCircleOutlined,
+  SearchOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { deliveryApi, customerApi } from '../services/api';
+import { deliveryApi, customerApi, stockApi } from '../services/api';
 import { Customer, DeliveryEntry, Shift } from '../types';
 
 const { Option } = Select;
 const { Title, Text } = Typography;
 
+interface StockInfo {
+  totalStock: number;
+  totalDelivered: number; // Already delivered in OTHER shifts for this date
+}
+
 const DailyLog: React.FC = () => {
   const [date, setDate] = useState(dayjs());
   const [shift, setShift] = useState<Shift>(Shift.MORNING);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [searchText, setSearchText] = useState('');
   const [deliveries, setDeliveries] = useState<Map<string, DeliveryEntry>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [stockInfo, setStockInfo] = useState<StockInfo>({ totalStock: 0, totalDelivered: 0 });
 
   const fetchData = useCallback(async () => {
     try {
       setIsLoading(true);
       const dateStr = date.format('YYYY-MM-DD');
       
-      const [customersData, deliveriesData] = await Promise.all([
+      const [customersData, deliveriesData, stockData] = await Promise.all([
         customerApi.getAll(),
         deliveryApi.getByDate(dateStr, shift),
+        stockApi.getAvailability(dateStr),
       ]);
 
       setCustomers(customersData.filter((c: Customer) => c.isActive));
+      setStockInfo(stockData);
 
       const deliveryMap = new Map<string, DeliveryEntry>();
       deliveriesData.forEach((d: { customerId: string; delivered: boolean; quantity?: number; actualAmount?: number }) => {
@@ -65,6 +81,11 @@ const DailyLog: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const filteredCustomers = customers.filter(c => 
+    c.name.toLowerCase().includes(searchText.toLowerCase()) ||
+    c.address.toLowerCase().includes(searchText.toLowerCase())
+  );
 
   const handleToggle = (customerId: string, delivered: boolean) => {
     setDeliveries((prev) => {
@@ -96,7 +117,7 @@ const DailyLog: React.FC = () => {
       const existing = newMap.get(customerId);
       newMap.set(customerId, {
         customerId,
-        delivered: existing?.delivered ?? true, // Auto-mark as delivered if quantity changed? Maybe keep as is.
+        delivered: existing?.delivered ?? true,
         quantity,
       });
       return newMap;
@@ -132,11 +153,31 @@ const DailyLog: React.FC = () => {
   };
 
   const handleSave = async () => {
+    // Check for stock overflow before saving
+    if (remainingStock < 0) {
+      Modal.confirm({
+        title: 'Stock Overflow Warning',
+        icon: <ExclamationCircleOutlined />,
+        content: `You are trying to deliver ${Math.abs(remainingStock).toFixed(1)}L more than available stock. Are you sure you want to proceed?`,
+        okText: 'Save Anyway',
+        okType: 'danger',
+        cancelText: 'Cancel',
+        onOk: async () => {
+          await performSave();
+        },
+      });
+    } else {
+      await performSave();
+    }
+  };
+
+  const performSave = async () => {
     try {
       setIsSaving(true);
       const entries = Array.from(deliveries.values());
       await deliveryApi.bulkUpdate(date.format('YYYY-MM-DD'), shift, entries);
       message.success('Deliveries saved successfully');
+      await fetchData(); // Refresh to update stock info
     } catch (error) {
       console.error('Failed to save:', error);
       message.error('Failed to save deliveries');
@@ -145,13 +186,21 @@ const DailyLog: React.FC = () => {
     }
   };
 
-  const totalDelivered = Array.from(deliveries.values()).reduce(
+  // Calculate totals for validation
+  const currentShiftTotal = Array.from(deliveries.values()).reduce(
     (sum, entry) => sum + (entry.delivered ? entry.quantity : 0),
     0
   );
 
-  const totalDeliveredCustomers = Array.from(deliveries.values()).filter(d => d.delivered).length;
+  // Remaining stock = Total Stock In - Already Delivered (other shifts) - Current Shift Allocation
+  // Note: stockInfo.totalDelivered includes ALL shifts for the date. 
+  // We need to be careful: if this shift's data is already saved, it's included in totalDelivered.
+  // For a cleaner approach, we calculate based on what user sees: totalStock - currentShiftTotal
+  // BUT we also need to account for other shifts. Let's simplify:
+  // Remaining = TotalStock - (what's currently allocated in this view)
+  const remainingStock = stockInfo.totalStock - currentShiftTotal;
 
+  const totalDeliveredCustomers = Array.from(deliveries.values()).filter(d => d.delivered).length;
   const completionPercentage = Math.round((totalDeliveredCustomers / customers.length) * 100) || 0;
 
   const columns = [
@@ -169,7 +218,7 @@ const DailyLog: React.FC = () => {
     {
       title: 'Quota',
       key: 'quota',
-      render: (_: any, record: Customer) => {
+      render: (_: unknown, record: Customer) => {
           const quota = shift === Shift.MORNING ? record.morningQuota : record.eveningQuota;
           return <Tag color="blue">{quota} L</Tag>;
       }
@@ -177,7 +226,7 @@ const DailyLog: React.FC = () => {
     {
       title: 'Status',
       key: 'status',
-      render: (_: any, record: Customer) => {
+      render: (_: unknown, record: Customer) => {
           const entry = deliveries.get(record.id);
           const isDelivered = entry?.delivered ?? false;
           return (
@@ -193,28 +242,35 @@ const DailyLog: React.FC = () => {
     {
       title: 'Actual (L)',
       key: 'quantity',
-      render: (_: any, record: Customer, index: number) => {
+      render: (_: unknown, record: Customer, index: number) => {
           const entry = deliveries.get(record.id);
+          const quota = shift === Shift.MORNING ? record.morningQuota : record.eveningQuota;
+          const quantity = entry?.quantity ?? 0;
+          const exceedsQuota = quantity > quota && quota > 0;
+
           return (
-              <InputNumber
-                id={`quantity-${index}`}
-                min={0}
-                step={0.5}
-                value={entry?.quantity ?? 0}
-                onChange={(val) => handleQuantityChange(record.id, val || 0)}
-                disabled={!entry?.delivered}
-                style={{ width: 80 }}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        const nextInput = document.getElementById(`quantity-${index + 1}`);
-                        if (nextInput) {
-                            (nextInput as HTMLInputElement).focus();
-                            (nextInput as HTMLInputElement).select();
-                        }
-                    }
-                }}
-              />
+              <Tooltip title={exceedsQuota ? `Exceeds quota of ${quota}L` : ''} open={exceedsQuota ? undefined : false}>
+                <InputNumber
+                  id={`quantity-${index}`}
+                  min={0}
+                  step={0.5}
+                  value={quantity}
+                  onChange={(val) => handleQuantityChange(record.id, val || 0)}
+                  disabled={!entry?.delivered}
+                  style={{ width: 80 }}
+                  status={exceedsQuota ? 'warning' : undefined}
+                  onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const nextInput = document.getElementById(`quantity-${index + 1}`);
+                          if (nextInput) {
+                              (nextInput as HTMLInputElement).focus();
+                              (nextInput as HTMLInputElement).select();
+                          }
+                      }
+                  }}
+                />
+              </Tooltip>
           );
       }
     }
@@ -229,6 +285,14 @@ const DailyLog: React.FC = () => {
         </div>
 
         <Space wrap>
+          <Input
+            placeholder="Search customer..."
+            prefix={<SearchOutlined />}
+            value={searchText}
+            onChange={e => setSearchText(e.target.value)}
+            style={{ width: 220 }}
+            allowClear
+          />
           <DatePicker 
             value={date} 
             onChange={(val) => setDate(val || dayjs())} 
@@ -246,6 +310,17 @@ const DailyLog: React.FC = () => {
           </Select>
         </Space>
       </div>
+
+      {/* Stock Alert */}
+      {remainingStock < 0 && (
+        <Alert
+          message="Stock Overflow"
+          description={`You are allocating ${Math.abs(remainingStock).toFixed(1)}L more than available stock (${stockInfo.totalStock.toFixed(1)}L). Please reduce quantities or add more stock.`}
+          type="error"
+          showIcon
+          icon={<WarningOutlined />}
+        />
+      )}
 
       <Card>
         <div className="mb-4">
@@ -276,8 +351,16 @@ const DailyLog: React.FC = () => {
 
           <Space size="large">
             <div className="text-right">
-              <Text type="secondary" className="block text-xs">Total Delivered</Text>
-              <Text strong className="text-lg">{totalDelivered.toFixed(1)} L</Text>
+              <Text type="secondary" className="block text-xs">Stock Available</Text>
+              <Text strong className={`text-lg ${remainingStock < 0 ? 'text-red-500' : ''}`}>
+                {stockInfo.totalStock.toFixed(1)} L
+              </Text>
+            </div>
+            <div className="text-right">
+              <Text type="secondary" className="block text-xs">Total Allocated</Text>
+              <Text strong className={`text-lg ${remainingStock < 0 ? 'text-red-500' : ''}`}>
+                {currentShiftTotal.toFixed(1)} L
+              </Text>
             </div>
             <Button 
                 type="primary" 
@@ -285,6 +368,7 @@ const DailyLog: React.FC = () => {
                 loading={isSaving}
                 icon={<SaveOutlined />}
                 size="large"
+                danger={remainingStock < 0}
             >
               Save Changes
             </Button>
@@ -292,7 +376,7 @@ const DailyLog: React.FC = () => {
         </div>
 
         <Table
-            dataSource={customers}
+            dataSource={filteredCustomers}
             columns={columns}
             rowKey="id"
             loading={isLoading}

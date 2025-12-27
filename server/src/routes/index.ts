@@ -20,6 +20,7 @@ import {
   autofillDeliveries,
   clearDeliveries,
   getTodayTotal,
+  getDeliveriesByCustomer,
 } from '../controllers/deliveryController.js';
 import {
   getAllStock,
@@ -28,6 +29,7 @@ import {
   deleteStock,
   getCurrentInventory,
   getStockSources,
+  getStockAvailability
 } from '../controllers/stockController.js';
 import {
   getMonthlyBilling,
@@ -118,6 +120,13 @@ router.get('/deliveries', getDeliveriesByDateAndShift);
  * @desc    Get total deliveries for today
  */
 router.get('/deliveries/today-total', getTodayTotal);
+
+/**
+ * @route   GET /api/deliveries/customer/:id
+ * @desc    Get deliveries for a specific customer
+ * @query   startDate, endDate
+ */
+router.get('/deliveries/customer/:id', getDeliveriesByCustomer);
 
 /**
  * @route   POST /api/deliveries
@@ -255,6 +264,13 @@ router.get('/dashboard/trends', getDeliveryTrends);
  * @query   startDate, endDate
  */
 router.get('/dashboard/sources', getSourceStats);
+
+/**
+ * @route   GET /api/stock/availability
+ * @desc    Get stock availability for a date
+ * @query   date
+ */
+router.get('/stock/availability', getStockAvailability);
 
 // ============================================================================
 // Settings Routes

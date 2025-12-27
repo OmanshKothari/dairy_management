@@ -288,3 +288,61 @@ export const getStockSources = async (
     res.status(500).json(response);
   }
 };
+
+/**
+ * Get stock availability for a specific date
+ */
+export const getStockAvailability = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { date } = req.query;
+    
+    if (!date) {
+      const response: ApiResponse<null> = {
+        success: false,
+        error: 'Date is required',
+      };
+      res.status(400).json(response);
+      return;
+    }
+
+    const dateStr = String(date);
+
+    // 1. Get total stock IN for the date
+    const stockAgg = await prisma.stock.aggregate({
+        where: { date: dateStr },
+        _sum: { quantity: true }
+    });
+    const totalStock = stockAgg._sum.quantity || 0;
+
+    // 2. Get total stock OUT (delivered) for the date
+    const deliveryAgg = await prisma.delivery.aggregate({
+        where: { 
+            date: dateStr,
+            delivered: true
+        },
+        _sum: { actualAmount: true }
+    });
+    const totalDelivered = deliveryAgg._sum.actualAmount || 0;
+
+    const response: ApiResponse<{ totalStock: number; totalDelivered: number }> = {
+        success: true,
+        data: {
+            totalStock,
+            totalDelivered
+        }
+    };
+
+    res.json(response);
+
+  } catch (error) {
+    console.error('Error fetching stock availability:', error);
+    const response: ApiResponse<null> = {
+      success: false,
+      error: 'Failed to fetch stock availability',
+    };
+    res.status(500).json(response);
+  }
+};
