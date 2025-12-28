@@ -239,8 +239,41 @@ export interface CustomerBillingSummary {
   pricePerLiter: number;
   /** Total amount for the billing summary */
   totalAmount: number;
+  /** Arrears from previous months (positive means they owe, negative means credit) */
+  previousBalance: number;
+  /** Total amount paid during this month */
+  paidAmount: number;
+  /** Final amount due (totalAmount + previousBalance - paidAmount) */
+  totalDue: number;
   /** Daily delivery records for the billing summary */
   dailyBreakdown: DailyDeliveryRecord[];
+}
+
+/**
+ * Payment record interface
+ */
+export interface Payment {
+  id: string;
+  customerId: string;
+  amount: number;
+  date: string;
+  month: number;
+  year: number;
+  remarks?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Payment creation DTO
+ */
+export interface CreatePaymentDTO {
+  customerId: string;
+  amount: number;
+  date: string;
+  month: number;
+  year: number;
+  remarks?: string;
 }
 
 /**

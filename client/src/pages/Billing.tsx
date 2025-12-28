@@ -14,12 +14,16 @@ import {
 import { 
     PrinterOutlined, 
     EyeOutlined,
-    SearchOutlined
+    SearchOutlined,
+    DollarOutlined,
+    CheckCircleOutlined,
+    ClockCircleOutlined,
+    ExclamationCircleOutlined
 } from '@ant-design/icons';
 import { useSettings } from '../contexts/SettingsContext';
 import { billingApi } from '../services/api';
-import { CustomerBillingSummary, CustomerInvoice } from '../types';
-import { getMonthName } from '../utils/helpers';
+import { CustomerBillingSummary, CustomerInvoice, CreatePaymentDTO } from '../types';
+import { getMonthName } from '@/utils/helpers';
 import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
@@ -123,18 +127,24 @@ const InvoiceModal: React.FC<InvoiceModalProps> = ({
               <div class="section-title">Summary</div>
               <table class="summary-table">
                 <tr>
-                  <td class="label">Total Milk Delivered</td>
-                  <td class="value">${invoice?.totalLiters.toFixed(1)} Liters</td>
+                  <td class="label">Current Month Bill</td>
+                  <td class="value">${currencySymbol}${invoice?.totalAmount.toFixed(2)}</td>
                 </tr>
                 <tr>
-                  <td class="label">Price per Liter</td>
-                  <td class="value">${currencySymbol}${invoice?.customer.pricePerLiter.toFixed(2)}</td>
+                  <td class="label">Arrears / Previous Balance</td>
+                  <td class="value">${currencySymbol}${(invoice as any).previousBalance?.toFixed(2) || '0.00'}</td>
                 </tr>
+                ${(invoice as any).paidAmount > 0 ? `
+                <tr>
+                  <td class="label">Amount Paid</td>
+                  <td class="value">${currencySymbol}${(invoice as any).paidAmount.toFixed(2)}</td>
+                </tr>
+                ` : ''}
               </table>
 
               <div class="total-box">
                 <h2>Total Amount Due</h2>
-                <div class="amount">${formatCurrency(invoice!.totalAmount)}</div>
+                <div class="amount">${formatCurrency((invoice as any).totalDue ?? invoice!.totalAmount)}</div>
               </div>
 
               <div class="section-title">Daily Breakdown</div>
@@ -218,21 +228,29 @@ const InvoiceModal: React.FC<InvoiceModalProps> = ({
           <h2 className="font-semibold text-gray-900 text-base">Summary</h2>
           <div className="mt-4 space-y-2">
             <div className="flex justify-between py-2 border-b border-gray-50">
-              <span className="text-gray-500">Total Milk Delivered</span>
+              <span className="text-gray-500">Current Month Usage</span>
               <span className="font-semibold text-gray-900">
-                {invoice.totalLiters.toFixed(1)} Liters
+                {invoice.totalLiters.toFixed(1)} L × {formatCurrency(invoice.customer.pricePerLiter)} = {formatCurrency(invoice.totalAmount)}
               </span>
             </div>
             <div className="flex justify-between py-2 border-b border-gray-50">
-              <span className="text-gray-500">Price per Liter</span>
-              <span className="font-semibold text-gray-900">
-                {formatCurrency(invoice.customer.pricePerLiter)}
+              <span className="text-gray-500">Previous Balance (Arrears)</span>
+              <span className={`font-semibold ${(invoice as any).previousBalance > 0 ? 'text-red-500' : 'text-green-500'}`}>
+                {formatCurrency((invoice as any).previousBalance || 0)}
               </span>
             </div>
+            {(invoice as any).paidAmount > 0 && (
+              <div className="flex justify-between py-2 border-b border-gray-50 underline decoration-green-200">
+                <span className="text-gray-500">Amount Paid this Month</span>
+                <span className="font-semibold text-green-600">
+                  - {formatCurrency((invoice as any).paidAmount)}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between rounded-xl bg-blue-600 p-5 mt-4 text-white shadow-lg shadow-blue-100">
               <span className="text-xl font-bold">Total Amount Due</span>
               <Text strong className="text-2xl font-bold text-white">
-                {formatCurrency(invoice.totalAmount)}
+                {formatCurrency((invoice as any).totalDue ?? invoice.totalAmount)}
               </Text>
             </div>
           </div>
@@ -277,6 +295,97 @@ const InvoiceModal: React.FC<InvoiceModalProps> = ({
   );
 };
 
+interface PaymentModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    summary: CustomerBillingSummary | null;
+    onSuccess: () => void;
+}
+
+const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, summary, onSuccess }) => {
+    const [amount, setAmount] = useState<number>(0);
+    const [remarks, setRemarks] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+
+    useEffect(() => {
+        if (summary) {
+            setAmount(summary.totalDue);
+        }
+    }, [summary]);
+
+    const handleSave = async () => {
+        if (!summary) return;
+        try {
+            setIsSaving(true);
+            const paymentData: CreatePaymentDTO = {
+                customerId: summary.customerId,
+                amount,
+                date: dayjs().format('YYYY-MM-DD'),
+                month: summary.month,
+                year: summary.year,
+                remarks
+            };
+            await billingApi.recordPayment(paymentData);
+            message.success('Payment recorded successfully');
+            onSuccess();
+            onClose();
+        } catch (error) {
+            console.error('Failed to record payment:', error);
+            message.error('Failed to record payment');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    if (!summary) return null;
+
+    return (
+        <Modal
+            title={`Record Payment - ${summary.customerName}`}
+            open={isOpen}
+            onCancel={onClose}
+            onOk={handleSave}
+            confirmLoading={isSaving}
+            okText="Record Payment"
+        >
+            <div className="space-y-4 py-4">
+                <div className="bg-gray-50 p-4 rounded-lg">
+                    <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Total Due:</span>
+                        <span className="font-bold text-blue-600">{summary.totalDue.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs mt-1">
+                        <span className="text-gray-400">Arrears: {summary.previousBalance.toFixed(2)}</span>
+                        <span className="text-gray-400">Current Month: {summary.totalAmount.toFixed(2)}</span>
+                    </div>
+                </div>
+                
+                <div>
+                    <Text strong>Payment Amount</Text>
+                    <Input 
+                        type="number" 
+                        value={amount} 
+                        onChange={e => setAmount(Number(e.target.value))} 
+                        prefix={<DollarOutlined />}
+                        className="mt-1"
+                    />
+                </div>
+                
+                <div>
+                    <Text strong>Remarks (Optional)</Text>
+                    <Input.TextArea 
+                        rows={2} 
+                        value={remarks} 
+                        onChange={e => setRemarks(e.target.value)} 
+                        placeholder="e.g. Paid via UPI"
+                        className="mt-1"
+                    />
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
 const Billing: React.FC = () => {
   const { settings, formatCurrency } = useSettings();
   const currentDate = dayjs();
@@ -291,6 +400,8 @@ const Billing: React.FC = () => {
   );
 
   const [selectedInvoice, setSelectedInvoice] = useState<CustomerInvoice | null>(null);
+  const [selectedForPayment, setSelectedForPayment] = useState<CustomerBillingSummary | null>(null);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isLoadingInvoice, setIsLoadingInvoice] = useState(false);
 
   const fetchBilling = async () => {
@@ -338,39 +449,67 @@ const Billing: React.FC = () => {
           render: (text: string) => <Text strong>{text}</Text>
       },
       {
-          title: 'Total Liters',
-          dataIndex: 'totalLiters',
-          key: 'totalLiters',
-          align: 'center' as const,
-          render: (val: number) => <Tag color="blue">{val.toFixed(1)} L</Tag>
+          title: 'Prev. Balance',
+          dataIndex: 'previousBalance',
+          key: 'previousBalance',
+          align: 'right' as const,
+          render: (val: number) => (
+              <Text type={val > 0 ? 'danger' : (val < 0 ? 'success' : 'secondary')}>
+                  {formatCurrency(val)}
+              </Text>
+          )
       },
       {
-          title: 'Rate',
-          dataIndex: 'pricePerLiter',
-          key: 'pricePerLiter',
-          align: 'center' as const,
+          title: 'Current Bill',
+          dataIndex: 'totalAmount',
+          key: 'totalAmount',
+          align: 'right' as const,
           render: (val: number) => <Text>{formatCurrency(val)}</Text>
       },
       {
-          title: 'Total Amount',
-          dataIndex: 'totalAmount',
-          key: 'totalAmount',
+          title: 'Total Due',
+          dataIndex: 'totalDue',
+          key: 'totalDue',
+          align: 'right' as const,
+          render: (val: number) => <Text strong className={val > 0 ? 'text-blue-600' : 'text-green-600'}>{formatCurrency(val)}</Text>
+      },
+      {
+          title: 'Status',
+          key: 'status',
           align: 'center' as const,
-          render: (val: number) => <Text strong type="success">{formatCurrency(val)}</Text>
+          render: (_: any, record: CustomerBillingSummary) => {
+              if (record.totalDue <= 0) return <Tag color="success" icon={<CheckCircleOutlined />}>PAID</Tag>;
+              if (record.paidAmount > 0) return <Tag color="warning" icon={<ClockCircleOutlined />}>PARTIAL</Tag>;
+              return <Tag color="error" icon={<ExclamationCircleOutlined />}>UNPAID</Tag>;
+          }
       },
       {
           title: 'Actions',
           key: 'actions',
           align: 'center' as const,
           render: (_: any, record: CustomerBillingSummary) => (
-              <Button 
-                type="link" 
-                icon={<EyeOutlined />} 
-                onClick={() => handleViewBill(record.customerId)}
-                loading={isLoadingInvoice}
-              >
-                  View Bill
-              </Button>
+              <Space>
+                  <Button 
+                    type="link" 
+                    icon={<EyeOutlined />} 
+                    onClick={() => handleViewBill(record.customerId)}
+                    loading={isLoadingInvoice}
+                  >
+                      View
+                  </Button>
+                  <Button
+                    type="primary"
+                    size="small"
+                    ghost
+                    icon={<DollarOutlined />}
+                    onClick={() => {
+                        setSelectedForPayment(record);
+                        setIsPaymentModalOpen(true);
+                    }}
+                  >
+                      Pay
+                  </Button>
+              </Space>
           )
       }
   ];
@@ -423,6 +562,7 @@ const Billing: React.FC = () => {
             rowKey="customerId"
             loading={isLoading}
             pagination={false}
+            scroll={{ x: 'max-content' }}
         />
       </Card>
 
@@ -434,6 +574,16 @@ const Billing: React.FC = () => {
         year={year}
         settings={settings}
         formatCurrency={formatCurrency}
+      />
+
+      <PaymentModal
+        isOpen={isPaymentModalOpen}
+        onClose={() => {
+            setIsPaymentModalOpen(false);
+            setSelectedForPayment(null);
+        }}
+        summary={selectedForPayment}
+        onSuccess={fetchBilling}
       />
     </div>
   );

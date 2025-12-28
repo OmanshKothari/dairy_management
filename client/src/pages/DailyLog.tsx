@@ -381,7 +381,7 @@ const DailyLog: React.FC = () => {
             rowKey="id"
             loading={isLoading}
             pagination={false}
-            scroll={{ y: 600 }}
+            scroll={{ x: 'max-content', y: 600 }}
             size="middle"
         />
       </Card>

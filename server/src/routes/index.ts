@@ -36,6 +36,7 @@ import {
   getCustomerBilling,
   getCustomerInvoice,
   getTodayRevenue,
+  recordPayment,
 } from '../controllers/billingController.js';
 import {
   getDashboardStats,
@@ -220,6 +221,15 @@ router.get('/billing/monthly', getMonthlyBilling);
  * @query   year - Year (e.g., 2025)
  */
 router.get('/billing/customer/:customerId', getCustomerBilling);
+
+/**
+ * @route   GET /api/billing/invoice/:customerId
+ * @desc    Get customer invoice with daily breakdown
+ * @query   month - Month number (1-12)
+ * @query   year - Year (e.g., 2025)
+ */
+router.get('/billing/invoice/:customerId', getCustomerInvoice);
+router.post('/billing/payment', recordPayment);
 
 /**
  * @route   GET /api/billing/customer/:customerId/invoice

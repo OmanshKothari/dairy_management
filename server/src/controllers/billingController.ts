@@ -14,6 +14,8 @@ import {
   Customer,
   Settings,
   Shift,
+  CreatePaymentDTO,
+  Payment,
 } from '../types/index.js';
 
 /**
@@ -101,8 +103,44 @@ export const getMonthlyBilling = async (
           totalAmount: amounts.morning + amounts.evening,
         }));
       
-      const totalAmount = totalLiters * customer.pricePerLiter;
+      const totalConsumptionAmount = totalLiters * customer.pricePerLiter;
+
+      // Calculate previous balance (Total historical consumption BEFORE this month - Total historical payments BEFORE this month)
+      const historicalDeliveries = await prisma.delivery.findMany({
+        where: {
+          customerId: customer.id,
+          date: { lt: startDate },
+          delivered: true
+        },
+        include: { customer: true }
+      });
       
+      const totalHistoricalDebit = historicalDeliveries.reduce((acc, d) => 
+        acc + (d.actualAmount * (d.customer?.pricePerLiter || customer.pricePerLiter)), 0
+      );
+
+      const historicalPayments = await prisma.payment.findMany({
+        where: {
+          customerId: customer.id,
+          OR: [
+            { year: { lt: yearNum } },
+            { year: yearNum, month: { lt: monthNum } }
+          ]
+        }
+      });
+      const totalHistoricalCredit = historicalPayments.reduce((acc: number, p: any) => acc + p.amount, 0);
+      const previousBalance = totalHistoricalDebit - totalHistoricalCredit;
+
+      // Calculate payments for current month
+      const currentMonthPayments = await prisma.payment.findMany({
+        where: {
+          customerId: customer.id,
+          month: monthNum,
+          year: yearNum
+        }
+      });
+      const paidAmount = currentMonthPayments.reduce((acc: number, p: any) => acc + p.amount, 0);
+
       billingData.push({
         customerId: customer.id,
         customerName: customer.name,
@@ -111,7 +149,10 @@ export const getMonthlyBilling = async (
         year: yearNum,
         totalLiters,
         pricePerLiter: customer.pricePerLiter,
-        totalAmount,
+        totalAmount: totalConsumptionAmount,
+        previousBalance,
+        paidAmount,
+        totalDue: previousBalance + totalConsumptionAmount - paidAmount,
         dailyBreakdown,
       });
     }
@@ -212,9 +253,42 @@ export const getCustomerBilling = async (
         totalAmount: amounts.morning + amounts.evening,
       }));
     
+    // Calculate balances for specific customer
+    const historicalDeliveries = await prisma.delivery.findMany({
+      where: {
+        customerId,
+        date: { lt: startDate },
+        delivered: true
+      }
+    });
+    const totalHistoricalDebit = historicalDeliveries.reduce((acc, d) => acc + (d.actualAmount * customer.pricePerLiter), 0);
+
+    const historicalPayments = await prisma.payment.findMany({
+      where: {
+        customerId,
+        OR: [
+          { year: { lt: yearNum } },
+          { year: yearNum, month: { lt: monthNum } }
+        ]
+      }
+    });
+    const totalHistoricalCredit = historicalPayments.reduce((acc: number, p: any) => acc + p.amount, 0);
+    const previousBalance = totalHistoricalDebit - totalHistoricalCredit;
+
+    const currentMonthPayments = await prisma.payment.findMany({
+      where: {
+        customerId,
+        month: monthNum,
+        year: yearNum
+      }
+    });
+    const paidAmount = currentMonthPayments.reduce((acc: number, p: any) => acc + p.amount, 0);
+
     // Get business settings for invoice
     const settings = await prisma.settings.findUnique({ where: { id: 1 }});
     
+    const totalAmount = totalLiters * customer.pricePerLiter;
+
     const billingDetail: CustomerBillingSummary & { settings?: Settings | null } = {
       customerId: customer.id,
       customerName: customer.name,
@@ -223,7 +297,10 @@ export const getCustomerBilling = async (
       year: yearNum,
       totalLiters,
       pricePerLiter: customer.pricePerLiter,
-      totalAmount: totalLiters * customer.pricePerLiter,
+      totalAmount,
+      previousBalance,
+      paidAmount,
+      totalDue: previousBalance + totalAmount - paidAmount,
       dailyBreakdown,
       settings: settings as unknown as Settings,
     };
@@ -410,6 +487,53 @@ export const getCustomerInvoice = async (
     const response: ApiResponse<null> = {
       success: false,
       error: 'Failed to fetch customer invoice',
+    };
+    res.status(500).json(response);
+  }
+};
+
+/**
+ * Record a payment for a customer
+ */
+export const recordPayment = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const paymentData: CreatePaymentDTO = req.body;
+    
+    if (!paymentData.customerId || paymentData.amount === undefined || !paymentData.date || !paymentData.month || !paymentData.year) {
+      const response: ApiResponse<null> = {
+        success: false,
+        error: 'Missing required payment fields',
+      };
+      res.status(400).json(response);
+      return;
+    }
+
+    const payment = await prisma.payment.create({
+      data: {
+        customerId: paymentData.customerId,
+        amount: paymentData.amount,
+        date: paymentData.date,
+        month: paymentData.month,
+        year: paymentData.year,
+        remarks: paymentData.remarks,
+      }
+    });
+
+    const response: ApiResponse<Payment> = {
+      success: true,
+      data: payment as unknown as Payment,
+      message: 'Payment recorded successfully',
+    };
+    
+    res.status(201).json(response);
+  } catch (error) {
+    console.error('Error recording payment:', error);
+    const response: ApiResponse<null> = {
+      success: false,
+      error: 'Failed to record payment',
     };
     res.status(500).json(response);
   }

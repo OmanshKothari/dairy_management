@@ -23,6 +23,8 @@ import {
   InventoryData,
   ApiResponse,
   Shift,
+  CreatePaymentDTO,
+  Payment,
 } from '../types';
 
 /**
@@ -332,6 +334,15 @@ export const billingApi = {
       '/billing/today-revenue'
     );
     return response.data.data || { revenue: 0, date: '' };
+  },
+
+  /**
+   * Record a payment
+   */
+  recordPayment: async (data: CreatePaymentDTO): Promise<Payment> => {
+    const response = await api.post<ApiResponse<Payment>>('/billing/payment', data);
+    if (!response.data.data) throw new Error('Failed to record payment');
+    return response.data.data;
   },
 };
 

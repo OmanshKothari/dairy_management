@@ -31,16 +31,17 @@ import {
   FileText,
 } from 'lucide-react';
 import { ArrowRightOutlined } from '@ant-design/icons';
-import { Card, Statistic, Row, Col, Button, Spin, Typography, Alert, Space, DatePicker, Select } from 'antd';
+import { Card, Statistic, Row, Col, Button, Spin, Typography, Alert, Space, DatePicker, Select, Grid } from 'antd';
 import { useSettings } from '../contexts/SettingsContext';
 import { dashboardApi, customerApi } from '../services/api';
 import { DashboardStats, YesterdayComparison, Customer } from '../types';
-import { getGreeting, getCurrentShift } from '../utils/helpers';
+import { getGreeting, getCurrentShift } from '@/utils/helpers';
 import toast from 'react-hot-toast';
 import dayjs, { Dayjs } from 'dayjs';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
+const { useBreakpoint } = Grid;
 
 // Colors for Pie Chart
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
@@ -60,6 +61,9 @@ const Dashboard: React.FC = () => {
   // Filter States
   const [dateRange, setDateRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(30, 'days'), dayjs()]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('all');
+
+  const screens = useBreakpoint();
+  const isMobile = !screens.sm;
 
   const currentShift = getCurrentShift();
 
@@ -137,10 +141,10 @@ const Dashboard: React.FC = () => {
           }}
           bodyStyle={{ padding: '48px 32px' }}
         >
-          <Title level={1} style={{ color: 'white', margin: 0 }}>
+          <Title level={isMobile ? 2 : 1} style={{ color: 'white', margin: 0 }}>
             {getGreeting()}
           </Title>
-          <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 18, marginTop: 8, display: 'block' }}>
+          <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: isMobile ? 14 : 18, marginTop: 8, display: 'block' }}>
             Ready for today's distribution? You have{' '}
             <Text strong style={{ color: '#4285F4' }}>
               {stats?.pendingDeliveries || 0}
@@ -213,13 +217,20 @@ const Dashboard: React.FC = () => {
       <Row gutter={[24, 24]} style={{ marginTop: 24 }}>
         <Col span={24}>
             <Card title={
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: isMobile ? 'flex-start' : 'center', 
+                    flexDirection: isMobile ? 'column' : 'row',
+                    padding: '8px 0',
+                    gap: 12 
+                }}>
                     <span>Analytics & Reports</span>
-                    <Space>
+                    <Space direction={isMobile ? 'vertical' : 'horizontal'} style={{ width: isMobile ? '100%' : 'auto' }}>
                         <Select
                             value={selectedCustomerId}
                             onChange={setSelectedCustomerId}
-                            style={{ width: 200 }}
+                            style={{ width: isMobile ? '100%' : 200 }}
                             placeholder="Filter by Customer"
                         >
                             <Select.Option value="all">All Customers</Select.Option>
@@ -235,6 +246,7 @@ const Dashboard: React.FC = () => {
                                 }
                             }}
                             allowClear={false}
+                            style={{ width: isMobile ? '100%' : 'auto' }}
                         />
                     </Space>
                 </div>

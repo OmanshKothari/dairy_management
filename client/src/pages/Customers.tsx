@@ -34,7 +34,7 @@ import {
 import { useSettings } from '../contexts/SettingsContext';
 import { customerApi } from '../services/api';
 import { Customer, CustomerFormData, CustomerCategory } from '../types';
-import { stringToColor } from '../utils/helpers';
+import { stringToColor } from '@/utils/helpers';
 import CustomerHistoryModal from '../components/CustomerHistoryModal';
 
 const { Title, Text } = Typography;
@@ -159,24 +159,24 @@ const Customers: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <Title level={2} style={{ margin: 0 }}>Customer Management</Title>
           <Text type="secondary">Manage profiles and daily quotas</Text>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full sm:w-auto">
           <Input
             placeholder="Search name or address..."
             prefix={<SearchOutlined />}
             value={searchText}
             onChange={e => setSearchText(e.target.value)}
-            style={{ width: 250 }}
+            className="w-full sm:w-64"
             allowClear
           />
           <Select
             value={categoryFilter}
             onChange={setCategoryFilter}
-            style={{ width: 150 }}
+            className="w-full sm:w-40"
             suffixIcon={<FilterOutlined />}
           >
             <Option value="ALL">All Categories</Option>
@@ -188,6 +188,7 @@ const Customers: React.FC = () => {
               onClick={handleOpenAdd} 
               icon={<PlusOutlined />}
               size="large"
+              className="w-full sm:w-auto"
           >
             Add Customer
           </Button>

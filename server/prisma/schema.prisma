@@ -20,6 +20,20 @@ model Customer {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   deliveries    Delivery[]
+  payments      Payment[]
+}
+
+model Payment {
+  id          String   @id @default(uuid())
+  amount      Float
+  date        String   
+  month       Int      // The month this payment is intended for (UI reference)
+  year        Int      // The year this payment is intended for
+  remarks     String?
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Delivery {

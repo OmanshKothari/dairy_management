@@ -140,9 +140,43 @@ export interface Settings {
 export interface CustomerBillingSummary {
   customerId: string;
   customerName: string;
+  customerAddress?: string;
+  month: number;
+  year: number;
   totalLiters: number;
   pricePerLiter: number;
   totalAmount: number;
+  previousBalance: number;
+  paidAmount: number;
+  totalDue: number;
+  dailyBreakdown?: DailyDeliveryRecord[];
+}
+
+/**
+ * Payment record interface
+ */
+export interface Payment {
+  id: string;
+  customerId: string;
+  amount: number;
+  date: string;
+  month: number;
+  year: number;
+  remarks?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Payment creation DTO
+ */
+export interface CreatePaymentDTO {
+  customerId: string;
+  amount: number;
+  date: string;
+  month: number;
+  year: number;
+  remarks?: string;
 }
 
 /**
