@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      - POSTGRES_USER=dairy_user
+      - POSTGRES_PASSWORD=dairy_password
+      - POSTGRES_DB=dairy_manager
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - dairy-network
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      - PORT=3001
+      - DATABASE_URL=postgresql://dairy_user:dairy_password@db:5432/dairy_manager?schema=public
+      - CORS_ORIGIN=http://localhost
+      - NODE_ENV=production
+    depends_on:
+      - db
+    networks:
+      - dairy-network
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - server
+    networks:
+      - dairy-network
+
+networks:
+  dairy-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
