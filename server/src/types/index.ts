@@ -57,7 +57,7 @@ export interface Customer {
   /** Delivery address of the customer */
   address: string;
   /** Contact phone number */
-  phone?: string;
+  phone?: string | null;
   /** Category of the customer */
   category: CustomerCategory;
   /** Default morning delivery amount in liters */
@@ -119,7 +119,7 @@ export interface Delivery {
   /** Expected delivery amount in liters */
   actualAmount: number;   // Actually delivered amount
   delivered: boolean;     // Whether delivery was made
-  notes?: string;
+  notes?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -158,7 +158,7 @@ export interface BulkDeliveryUpdateDTO {
     actualAmount: number;
     /** Whether delivery was made */
     delivered: boolean;
-    notes?: string;
+    notes?: string | null;
   }>;
 }
 
@@ -259,7 +259,7 @@ export interface Payment {
   date: string;
   month: number;
   year: number;
-  remarks?: string;
+  remarks?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

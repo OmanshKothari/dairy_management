@@ -128,7 +128,7 @@ export const getMonthlyBilling = async (
           ]
         }
       });
-      const totalHistoricalCredit = historicalPayments.reduce((acc: number, p: any) => acc + p.amount, 0);
+      const totalHistoricalCredit = historicalPayments.reduce((acc: number, p) => acc + p.amount, 0);
       const previousBalance = totalHistoricalDebit - totalHistoricalCredit;
 
       // Calculate payments for current month
@@ -139,7 +139,7 @@ export const getMonthlyBilling = async (
           year: yearNum
         }
       });
-      const paidAmount = currentMonthPayments.reduce((acc: number, p: any) => acc + p.amount, 0);
+      const paidAmount = currentMonthPayments.reduce((acc: number, p) => acc + p.amount, 0);
 
       billingData.push({
         customerId: customer.id,
@@ -272,7 +272,7 @@ export const getCustomerBilling = async (
         ]
       }
     });
-    const totalHistoricalCredit = historicalPayments.reduce((acc: number, p: any) => acc + p.amount, 0);
+    const totalHistoricalCredit = historicalPayments.reduce((acc: number, p) => acc + p.amount, 0);
     const previousBalance = totalHistoricalDebit - totalHistoricalCredit;
 
     const currentMonthPayments = await prisma.payment.findMany({
@@ -282,7 +282,7 @@ export const getCustomerBilling = async (
         year: yearNum
       }
     });
-    const paidAmount = currentMonthPayments.reduce((acc: number, p: any) => acc + p.amount, 0);
+    const paidAmount = currentMonthPayments.reduce((acc: number, p) => acc + p.amount, 0);
 
     // Get business settings for invoice
     const settings = await prisma.settings.findUnique({ where: { id: 1 }});
